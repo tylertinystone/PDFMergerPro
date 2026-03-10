@@ -20,6 +20,7 @@ Console.WriteLine($"运行日志: {DiagnosticLogger.LogFilePath}");
 Console.WriteLine($"自动快照: {(cfg.AutosaveEnabled ? $"开启（{cfg.AutosaveIntervalSeconds}s）" : "关闭")}");
 Console.WriteLine($"仅变更写回: {(cfg.PersistOnlyWhenChanged ? "开启" : "关闭")}");
 Console.WriteLine($"分块容器实验模式: {(cfg.UseChunkedContainerExperimental ? $"开启（Chunk={cfg.ChunkSizeBytes}）" : "关闭")}");
+Console.WriteLine("容器模式: 若检测到现有 VEC2 文件将自动走分块链路。");
 
 IThirdPartyDiskDriver driver = new DokanThirdPartyDiskDriver();
 Console.WriteLine($"当前驱动: {driver.GetType().Name}");

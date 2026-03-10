@@ -28,7 +28,7 @@ public sealed class SecureVirtualDiskManager
     {
         var plainDisk = VirtualDiskArchiveService.CreateEmptyArchive();
 
-        if (config.UseChunkedContainerExperimental)
+        if (ShouldUseChunkedContainer(config))
         {
             var store = ChunkedContainerStore.CreateNew(_encryption, config.ContainerPath, password, config.ChunkSizeBytes);
             store.WriteAllBytes(plainDisk);
@@ -39,6 +39,7 @@ public sealed class SecureVirtualDiskManager
             var encryptedPayload = _encryption.Encrypt(plainDisk, password);
             _container.Write(config.ContainerPath, encryptedPayload);
         }
+
         DiagnosticLogger.Info($"Encrypted disk created at '{config.ContainerPath}'.");
         await Task.CompletedTask;
     }
@@ -47,8 +48,9 @@ public sealed class SecureVirtualDiskManager
     {
         try
         {
+            var useChunked = ShouldUseChunkedContainer(config);
             byte[] plain;
-            if (config.UseChunkedContainerExperimental)
+            if (useChunked)
             {
                 var store = ChunkedContainerStore.Open(_encryption, config.ContainerPath, password);
                 plain = store.ReadAllBytes();
@@ -61,6 +63,7 @@ public sealed class SecureVirtualDiskManager
 
             await _driver.MountAsync(config, plain, ct);
 
+            DiagnosticLogger.Info($"Container mode resolved: {(useChunked ? "VEC2(chunked)" : "VED1(legacy)" )}. Path='{config.ContainerPath}'.");
             _lastPersistedSnapshotHash = ComputeHashHex(plain);
             _mountedConfig = config;
             _mountedPassword = password;
@@ -125,7 +128,6 @@ public sealed class SecureVirtualDiskManager
                 catch (Exception ex)
                 {
                     DiagnosticLogger.Error("Autosave snapshot failed.", ex);
-                    // 自动快照失败不应中断挂载流程。
                 }
             }
         });
@@ -182,7 +184,7 @@ public sealed class SecureVirtualDiskManager
             _lastPersistedSnapshotHash = currentHash;
         }
 
-        if (_mountedConfig.UseChunkedContainerExperimental)
+        if (ShouldUseChunkedContainer(_mountedConfig))
         {
             var store = ChunkedContainerStore.OpenOrCreate(_encryption, _mountedConfig.ContainerPath, _mountedPassword, _mountedConfig.ChunkSizeBytes);
             store.WriteAllBytes(snapshot);
@@ -223,7 +225,7 @@ public sealed class SecureVirtualDiskManager
             _lastPersistedSnapshotHash = currentHash;
         }
 
-        if (_mountedConfig.UseChunkedContainerExperimental)
+        if (ShouldUseChunkedContainer(_mountedConfig))
         {
             var store = ChunkedContainerStore.OpenOrCreate(_encryption, _mountedConfig.ContainerPath, _mountedPassword, _mountedConfig.ChunkSizeBytes);
             store.WriteAllBytes(updated);
@@ -236,6 +238,40 @@ public sealed class SecureVirtualDiskManager
         }
 
         DiagnosticLogger.Info($"Final persisted snapshot written to '{_mountedConfig.ContainerPath}'.");
+    }
+
+    private bool ShouldUseChunkedContainer(VirtualDiskConfig config)
+    {
+        if (config.UseChunkedContainerExperimental)
+        {
+            return true;
+        }
+
+        return IsVec2Container(config.ContainerPath);
+    }
+
+    private static bool IsVec2Container(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            Span<byte> magic = stackalloc byte[4];
+            if (fs.Read(magic) != 4)
+            {
+                return false;
+            }
+
+            return magic.SequenceEqual("VEC2"u8);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string ComputeHashHex(byte[] data)
