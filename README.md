@@ -24,8 +24,8 @@
 
 1. 解密得到内存中的虚拟磁盘数据。
 2. 写入临时目录中的 `disk.bin`。
-3. 使用项目内的 `DokanPassthroughOperations`（`IDokanOperations` 实现）并通过 `Dokan` 实例 API 挂载到盘符。
-4. 卸载时释放 `IDokanInstance`、调用 `RemoveMountPoint` 并清理临时目录。
+3. 使用项目内的 `DokanPassthroughOperations`（`IDokanOperations` 实现）并通过 Dokan 反射适配挂载到盘符（兼容 2.2.x API 差异）。
+4. 卸载时释放挂载实例（`IDisposable`）并清理临时目录。
 
 ## 使用前准备（Windows）
 

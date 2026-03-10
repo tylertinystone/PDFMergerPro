@@ -1,5 +1,6 @@
 using DokanNet;
 using System.Security.AccessControl;
+using System.Text.RegularExpressions;
 using FileAccess = DokanNet.FileAccess;
 
 namespace VirtualEncryptedDisk;
@@ -171,9 +172,18 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         }
 
         files = allFiles
-            .Where(f => FileSystemName.MatchesSimpleExpression(searchPattern, f.FileName, ignoreCase: true))
+            .Where(f => IsWildcardMatch(f.FileName, searchPattern))
             .ToList();
         return NtStatus.Success;
+    }
+
+
+    private static bool IsWildcardMatch(string input, string pattern)
+    {
+        var regexPattern = "^" + Regex.Escape(pattern)
+            .Replace("\*", ".*")
+            .Replace("\?", ".") + "$";
+        return Regex.IsMatch(input, regexPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
     public NtStatus SetFileAttributes(string fileName, FileAttributes attributes, IDokanFileInfo info)
