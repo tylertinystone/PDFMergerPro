@@ -4,7 +4,7 @@
 
 - 使用 **AES-GCM + PBKDF2** 对虚拟硬盘容器加密。
 - 用户必须输入正确密码后，才会调用驱动执行挂载。
-- 默认使用 **Dokan.NET** 驱动适配器。
+- 默认使用 **Dokan.NET（直接 Builder 调用）** 驱动适配器。
 
 ## 目录
 
@@ -24,7 +24,7 @@
 
 1. 解密得到内存中的虚拟磁盘数据。
 2. 写入临时目录中的 `disk.bin`。
-3. 使用项目内的 `DokanPassthroughOperations`（`IDokanOperations` 实现）并通过 Dokan 反射适配挂载到盘符（兼容 2.2.x API 差异）。
+3. 使用项目内的 `DokanPassthroughOperations`（`IDokanOperations` 实现）并通过 `DokanInstanceBuilder` 直接挂载到盘符（不使用反射）。
 4. 卸载时释放挂载实例（`IDisposable`）并清理临时目录。
 
 ## 使用前准备（Windows）

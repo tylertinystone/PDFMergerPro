@@ -1,17 +1,19 @@
-using System.Linq.Expressions;
-using System.Reflection;
+using DokanNet;
+using DokanNet.Logging;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace VirtualEncryptedDisk;
 
 /// <summary>
-/// 基于 Dokan.NET 的挂载实现（不依赖 DokanNet.Mirror）。
-/// 通过反射适配不同 DokanNet 2.2.x API 形态，避免版本差异导致编译失败。
+/// 基于 Dokan.NET 的直接挂载实现（不使用反射）。
 /// </summary>
 public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
 {
     private string? _mountedRoot;
-    private IDisposable? _instance;
+    private DokanInstance? _instance;
+    private FileStream? _logStream;
+    private TextWriterTraceListener? _traceListener;
 
     public async Task MountAsync(VirtualDiskConfig config, byte[] decryptedDiskBytes, CancellationToken ct = default)
     {
@@ -33,13 +35,33 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
         await File.WriteAllBytesAsync(diskImagePath, decryptedDiskBytes, ct);
 
         var fs = new DokanPassthroughOperations(root, config.ReadOnly);
+        var logger = CreateLogger();
 
         try
         {
-            _instance = await Task.Run(() => CreateDokanInstance(fs, mountPoint, config.ReadOnly), ct);
+            var dokan = new Dokan(logger);
+            _instance = new DokanInstanceBuilder(dokan)
+                .ConfigureOptions(o =>
+                {
+                    o.MountPoint = mountPoint;
+                    o.Options = DokanOptions.MountManager | DokanOptions.CurrentSession;
+                    if (config.ReadOnly)
+                    {
+                        o.Options |= DokanOptions.WriteProtection;
+                    }
+                })
+                .Build(fs);
+        }
+        catch (DllNotFoundException ex)
+        {
+            CleanupLogger();
+            Directory.Delete(root, recursive: true);
+            throw new InvalidOperationException(
+                $"Dokan Runtime 缺失：{ex.Message}。请安装 Dokan Runtime（包含 dokan2.dll）。", ex);
         }
         catch
         {
+            CleanupLogger();
             Directory.Delete(root, recursive: true);
             throw;
         }
@@ -52,6 +74,8 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
         _instance?.Dispose();
         _instance = null;
 
+        CleanupLogger();
+
         if (_mountedRoot is not null && Directory.Exists(_mountedRoot))
         {
             Directory.Delete(_mountedRoot, recursive: true);
@@ -61,274 +85,43 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
         return Task.CompletedTask;
     }
 
-    private static IDisposable CreateDokanInstance(DokanPassthroughOperations fs, string mountPoint, bool readOnly)
+    private ILogger CreateLogger()
     {
         try
         {
-            var dokanAsm = AppDomain.CurrentDomain.GetAssemblies()
-                .FirstOrDefault(a => a.GetName().Name == "DokanNet")
-                ?? throw new InvalidOperationException("未加载 DokanNet 程序集。");
+            var logDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "VirtualEncryptedDiskLogs");
+            Directory.CreateDirectory(logDirectory);
 
-            var builderType = dokanAsm.GetType("DokanNet.DokanInstanceBuilder")
-                ?? throw new InvalidOperationException("当前 DokanNet 版本未找到 DokanInstanceBuilder。");
+            var logFilePath = Path.Combine(logDirectory, $"dokan_log_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
+            _logStream = new FileStream(logFilePath, FileMode.Append, System.IO.FileAccess.Write, FileShare.Read);
+            _traceListener = new TextWriterTraceListener(_logStream);
+            Trace.Listeners.Add(_traceListener);
+            Trace.AutoFlush = true;
 
-            var optionsType = dokanAsm.GetType("DokanNet.DokanOptions")
-                ?? throw new InvalidOperationException("当前 DokanNet 版本未找到 DokanOptions。");
-
-            var fixedDrive = Enum.Parse(optionsType, "FixedDrive");
-            var options = fixedDrive;
-            if (readOnly)
-            {
-                var writeProtection = Enum.Parse(optionsType, "WriteProtection");
-                options = Enum.ToObject(optionsType, Convert.ToInt32(options) | Convert.ToInt32(writeProtection));
-            }
-
-            var builder = CreateBuilder(builderType, dokanAsm, fs);
-            InvokeIfExists(builder, "ConfigureMountPoint", mountPoint);
-            InvokeIfExists(builder, "ConfigureOptions", options);
-
-            var instance = InvokeBuild(builderType, builder) as IDisposable;
-            return instance ?? throw new InvalidOperationException("Dokan Build 返回值不可释放或为空。");
-        }
-        catch (TargetInvocationException ex) when (ex.InnerException is DllNotFoundException dllEx)
-        {
-            throw new InvalidOperationException(
-                $"Dokan Runtime 缺失：{dllEx.Message}。请安装 Dokan Runtime（包含 dokan2.dll）。", ex);
-        }
-    }
-
-
-    private static object? InvokeBuild(Type builderType, object builder)
-    {
-        var buildMethods = builderType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-            .Where(m => m.Name.Contains("Build", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(m => m.GetParameters().Length)
-            .ToList();
-
-        if (buildMethods.Count == 0)
-        {
-            throw new InvalidOperationException("DokanInstanceBuilder.Build 不可用。");
-        }
-
-        var errors = new List<string>();
-        foreach (var method in buildMethods)
-        {
-            try
-            {
-                var args = BuildMethodArgs(method.GetParameters());
-                var result = method.Invoke(builder, args);
-                if (result is IDisposable)
-                {
-                    return result;
-                }
-            }
-            catch (Exception ex)
-            {
-                errors.Add($"{method.Name}({string.Join(", ", method.GetParameters().Select(p => p.ParameterType.Name))}): {ex.GetBaseException().Message}");
-            }
-        }
-
-        throw new InvalidOperationException(
-            "未找到可调用的 DokanInstanceBuilder.Build 重载。尝试结果: " + string.Join(" | ", errors));
-    }
-
-    private static object?[] BuildMethodArgs(ParameterInfo[] parameters)
-    {
-        var args = new object?[parameters.Length];
-        for (var i = 0; i < parameters.Length; i++)
-        {
-            args[i] = CreateParameterValue(parameters[i]);
-        }
-
-        return args;
-    }
-
-    private static object? CreateParameterValue(ParameterInfo p)
-    {
-        if (p.HasDefaultValue)
-        {
-            return Type.Missing;
-        }
-
-        var t = p.ParameterType;
-        if (t == typeof(CancellationToken))
-        {
-            return CancellationToken.None;
-        }
-
-        if (t.IsByRef)
-        {
-            t = t.GetElementType()!;
-        }
-
-        if (typeof(Delegate).IsAssignableFrom(t))
-        {
-            return CreateNoOpDelegate(t);
-        }
-
-        if (t == typeof(string))
-        {
-            return string.Empty;
-        }
-
-        if (t.IsValueType)
-        {
-            return Activator.CreateInstance(t);
-        }
-
-        try
-        {
-            return Activator.CreateInstance(t);
+            Console.WriteLine($"Dokan logs: {logFilePath}");
+            return new TraceLogger();
         }
         catch
         {
-            return null;
+            CleanupLogger();
+            return new ConsoleLogger("[Dokan] ");
         }
     }
 
-    private static object? CreateNoOpDelegate(Type delegateType)
+    private void CleanupLogger()
     {
-        var invoke = delegateType.GetMethod("Invoke");
-        if (invoke is null)
+        if (_traceListener is not null)
         {
-            return null;
+            Trace.Listeners.Remove(_traceListener);
+            _traceListener.Flush();
+            _traceListener.Close();
+            _traceListener = null;
         }
 
-        try
-        {
-            var parameters = invoke.GetParameters()
-                .Select(p => Expression.Parameter(p.ParameterType, p.Name))
-                .ToArray();
-
-            Expression body = invoke.ReturnType == typeof(void)
-                ? Expression.Empty()
-                : Expression.Default(invoke.ReturnType);
-
-            var lambda = Expression.Lambda(delegateType, body, parameters);
-            return lambda.Compile();
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static object CreateBuilder(Type builderType, Assembly dokanAsm, DokanPassthroughOperations fs)
-    {
-        var ctors = builderType.GetConstructors().OrderBy(c => c.GetParameters().Length);
-        foreach (var ctor in ctors)
-        {
-            var parameters = ctor.GetParameters();
-            var args = new object?[parameters.Length];
-            var ok = true;
-
-            for (var i = 0; i < parameters.Length; i++)
-            {
-                var pType = parameters[i].ParameterType;
-
-                if (pType.IsInstanceOfType(fs))
-                {
-                    args[i] = fs;
-                    continue;
-                }
-
-                if (pType.FullName == "DokanNet.Dokan")
-                {
-                    args[i] = CreateDokanInstanceObject(dokanAsm, pType);
-                    continue;
-                }
-
-                if (parameters[i].HasDefaultValue || Nullable.GetUnderlyingType(pType) is not null || !pType.IsValueType)
-                {
-                    args[i] = parameters[i].DefaultValue;
-                    continue;
-                }
-
-                ok = false;
-                break;
-            }
-
-            if (ok)
-            {
-                return ctor.Invoke(args);
-            }
-        }
-
-        throw new InvalidOperationException("无法匹配 DokanInstanceBuilder 构造签名，请检查 DokanNet 版本。");
-    }
-
-    private static object CreateDokanInstanceObject(Assembly dokanAsm, Type dokanType)
-    {
-        var logger = TryCreateLogger(dokanAsm);
-        if (logger is not null)
-        {
-            var ctorWithLogger = dokanType.GetConstructors()
-                .FirstOrDefault(c => c.GetParameters().Length == 1 && c.GetParameters()[0].ParameterType.IsInstanceOfType(logger));
-            if (ctorWithLogger is not null)
-            {
-                return ctorWithLogger.Invoke(new[] { logger });
-            }
-        }
-
-        var parameterless = dokanType.GetConstructor(Type.EmptyTypes);
-        if (parameterless is not null)
-        {
-            return parameterless.Invoke(null);
-        }
-
-        throw new InvalidOperationException("无法创建 Dokan 实例：未找到兼容构造器。");
-    }
-
-    private static object? TryCreateLogger(Assembly dokanAsm)
-    {
-        var nullLoggerType = dokanAsm.GetType("DokanNet.Logging.NullLogger");
-        if (nullLoggerType is not null)
-        {
-            var nullLogger = Activator.CreateInstance(nullLoggerType);
-            if (nullLogger is not null)
-            {
-                return nullLogger;
-            }
-        }
-
-        var consoleLoggerType = dokanAsm.GetType("DokanNet.Logging.ConsoleLogger");
-        if (consoleLoggerType is null)
-        {
-            return null;
-        }
-
-        var parameterless = consoleLoggerType.GetConstructor(Type.EmptyTypes);
-        if (parameterless is not null)
-        {
-            return parameterless.Invoke(null);
-        }
-
-        var stringCtor = consoleLoggerType.GetConstructor(new[] { typeof(string) });
-        if (stringCtor is not null)
-        {
-            return stringCtor.Invoke(new object[] { "[Dokan] " });
-        }
-
-        return null;
-    }
-
-    private static void InvokeIfExists(object target, string methodName, object argument)
-    {
-        var argType = argument.GetType();
-        var candidates = target.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .Where(m => m.Name == methodName && m.GetParameters().Length == 1)
-            .ToList();
-
-        // 精确类型优先，避免选中 ConfigureOptions(delegate) 等重载
-        var method = candidates.FirstOrDefault(m => m.GetParameters()[0].ParameterType == argType)
-            ?? candidates.FirstOrDefault(m => m.GetParameters()[0].ParameterType.IsAssignableFrom(argType));
-
-        if (method is null)
-        {
-            return;
-        }
-
-        method.Invoke(target, new[] { argument });
+        _logStream?.Dispose();
+        _logStream = null;
     }
 
     private static string NormalizeMountPoint(string mountPoint)
