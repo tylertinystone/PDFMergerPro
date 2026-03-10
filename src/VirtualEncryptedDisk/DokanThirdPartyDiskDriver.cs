@@ -138,23 +138,59 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
 
     private static object CreateDokanInstanceObject(Assembly dokanAsm, Type dokanType)
     {
-        var loggerType = dokanAsm.GetType("DokanNet.Logging.ConsoleLogger");
-        if (loggerType is not null)
+        var logger = TryCreateLogger(dokanAsm);
+        if (logger is not null)
         {
-            var logger = Activator.CreateInstance(loggerType, "[Dokan] ");
-            if (logger is not null)
+            var ctorWithLogger = dokanType.GetConstructors()
+                .FirstOrDefault(c => c.GetParameters().Length == 1 && c.GetParameters()[0].ParameterType.IsInstanceOfType(logger));
+            if (ctorWithLogger is not null)
             {
-                var ctorWithLogger = dokanType.GetConstructors()
-                    .FirstOrDefault(c => c.GetParameters().Length == 1 && c.GetParameters()[0].ParameterType.IsInstanceOfType(logger));
-                if (ctorWithLogger is not null)
-                {
-                    return ctorWithLogger.Invoke(new[] { logger });
-                }
+                return ctorWithLogger.Invoke(new[] { logger });
             }
         }
 
-        return Activator.CreateInstance(dokanType)
-               ?? throw new InvalidOperationException("无法创建 Dokan 实例。");
+        var parameterless = dokanType.GetConstructor(Type.EmptyTypes);
+        if (parameterless is not null)
+        {
+            return parameterless.Invoke(null);
+        }
+
+        throw new InvalidOperationException("无法创建 Dokan 实例：未找到兼容构造器。");
+    }
+
+    private static object? TryCreateLogger(Assembly dokanAsm)
+    {
+        // 先尝试 NullLogger（通常为无参构造）
+        var nullLoggerType = dokanAsm.GetType("DokanNet.Logging.NullLogger");
+        if (nullLoggerType is not null)
+        {
+            var nullLogger = Activator.CreateInstance(nullLoggerType);
+            if (nullLogger is not null)
+            {
+                return nullLogger;
+            }
+        }
+
+        // 再尝试 ConsoleLogger：优先无参构造，其次 string 前缀构造
+        var consoleLoggerType = dokanAsm.GetType("DokanNet.Logging.ConsoleLogger");
+        if (consoleLoggerType is null)
+        {
+            return null;
+        }
+
+        var parameterless = consoleLoggerType.GetConstructor(Type.EmptyTypes);
+        if (parameterless is not null)
+        {
+            return parameterless.Invoke(null);
+        }
+
+        var stringCtor = consoleLoggerType.GetConstructor(new[] { typeof(string) });
+        if (stringCtor is not null)
+        {
+            return stringCtor.Invoke(new object[] { "[Dokan] " });
+        }
+
+        return null;
     }
 
     private static void InvokeIfExists(object target, string methodName, object argument)
