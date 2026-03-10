@@ -1,15 +1,17 @@
 using DokanNet;
+using DokanNet.Logging;
 using System.Runtime.InteropServices;
 
 namespace VirtualEncryptedDisk;
 
 /// <summary>
 /// 基于 Dokan.NET 的挂载实现（不依赖 DokanNet.Mirror）。
-/// 思路：将解密后的数据落盘到临时目录，再通过本地透传 IDokanOperations 挂载为盘符。
+/// 使用 DokanInstanceBuilder API，兼容新版本 DokanNet。
 /// </summary>
 public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
 {
     private string? _mountedRoot;
+    private IDokanInstance? _instance;
 
     public async Task MountAsync(VirtualDiskConfig config, byte[] decryptedDiskBytes, CancellationToken ct = default)
     {
@@ -37,11 +39,19 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
             options |= DokanOptions.WriteProtection;
         }
 
-        var status = await Task.Run(() => Dokan.Mount(fs, mountPoint, options, threadCount: 5), ct);
-        if (status != DokanStatus.Success)
+        try
+        {
+            _instance = await Task.Run(() =>
+                new DokanInstanceBuilder(fs)
+                    .ConfigureMountPoint(mountPoint)
+                    .ConfigureOptions(options)
+                    .ConfigureLogger(new ConsoleLogger("[Dokan] "))
+                    .Build(), ct);
+        }
+        catch
         {
             Directory.Delete(root, recursive: true);
-            throw new InvalidOperationException($"Dokan 挂载失败，状态: {status}。");
+            throw;
         }
 
         _mountedRoot = root;
@@ -49,8 +59,8 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
 
     public Task UnmountAsync(string mountPoint, CancellationToken ct = default)
     {
-        var normalized = NormalizeMountPoint(mountPoint);
-        Dokan.RemoveMountPoint(normalized);
+        _instance?.Dispose();
+        _instance = null;
 
         if (_mountedRoot is not null && Directory.Exists(_mountedRoot))
         {
