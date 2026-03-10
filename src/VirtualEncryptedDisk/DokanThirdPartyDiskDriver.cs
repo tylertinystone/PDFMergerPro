@@ -1,13 +1,11 @@
 using DokanNet;
-using DokanNet.Logging;
-using DokanNet.Mirror;
 using System.Runtime.InteropServices;
 
 namespace VirtualEncryptedDisk;
 
 /// <summary>
-/// 基于 Dokan.NET 的挂载实现。
-/// 思路：将解密后的数据落盘到临时目录，然后通过 Dokan 镜像文件系统挂载为盘符。
+/// 基于 Dokan.NET 的挂载实现（不依赖 DokanNet.Mirror）。
+/// 思路：将解密后的数据落盘到临时目录，再通过本地透传 IDokanOperations 挂载为盘符。
 /// </summary>
 public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
 {
@@ -32,16 +30,14 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
         var diskImagePath = Path.Combine(root, "disk.bin");
         await File.WriteAllBytesAsync(diskImagePath, decryptedDiskBytes, ct);
 
-        var logger = new ConsoleLogger("[Dokan] ");
-        var mirror = new Mirror(root, logger);
-
+        var fs = new DokanPassthroughOperations(root, config.ReadOnly);
         var options = DokanOptions.FixedDrive;
         if (config.ReadOnly)
         {
             options |= DokanOptions.WriteProtection;
         }
 
-        var status = await Task.Run(() => Dokan.Mount(mirror, mountPoint, options, threadCount: 5), ct);
+        var status = await Task.Run(() => Dokan.Mount(fs, mountPoint, options, threadCount: 5), ct);
         if (status != DokanStatus.Success)
         {
             Directory.Delete(root, recursive: true);

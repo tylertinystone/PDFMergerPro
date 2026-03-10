@@ -8,6 +8,5 @@
 
   <ItemGroup>
     <PackageReference Include="DokanNet" Version="2.2.0" />
-    <PackageReference Include="DokanNet.Mirror" Version="2.2.0" />
   </ItemGroup>
 </Project>

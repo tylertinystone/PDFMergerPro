@@ -4,7 +4,7 @@
 
 - 使用 **AES-GCM + PBKDF2** 对虚拟硬盘容器加密。
 - 用户必须输入正确密码后，才会调用驱动执行挂载。
-- 默认提供 **Dokan.NET** 驱动适配器（已从 ImDisk 方案切换）。
+- 默认提供 **Dokan.NET** 驱动适配器。
 
 ## 目录
 
@@ -13,15 +13,18 @@
 - `EncryptionService.cs`：加解密与密钥派生。
 - `ContainerFileService.cs`：容器文件格式读写。
 - `DokanThirdPartyDiskDriver.cs`：通过 Dokan.NET 挂载盘符。
+- `DokanPassthroughOperations.cs`：自定义 `IDokanOperations` 本地透传实现。
 - `IThirdPartyDiskDriver.cs`：第三方驱动统一抽象。
 
-## Dokan.NET 挂载方式说明
+## 关于 “Dokan.Mirror 不可用”
 
-`DokanThirdPartyDiskDriver` 的流程：
+本项目已不再依赖 `DokanNet.Mirror` 包。
+
+当前实现改为：
 
 1. 解密得到内存中的虚拟磁盘数据。
 2. 写入临时目录中的 `disk.bin`。
-3. 使用 `DokanNet.Mirror` 把该目录镜像挂载到盘符（如 `R:`）。
+3. 使用项目内的 `DokanPassthroughOperations`（`IDokanOperations` 实现）挂载到盘符。
 4. 卸载时调用 `Dokan.RemoveMountPoint` 并清理临时目录。
 
 ## 使用前准备（Windows）
