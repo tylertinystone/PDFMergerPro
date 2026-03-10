@@ -4,7 +4,7 @@
 
 - 使用 **AES-GCM + PBKDF2** 对虚拟硬盘容器加密。
 - 用户必须输入正确密码后，才会调用驱动执行挂载。
-- 默认提供 **Dokan.NET** 驱动适配器。
+- 默认优先使用 **Dokan.NET**，不可用时自动回退到 ImDisk，再回退 Mock。
 
 ## 目录
 
@@ -27,9 +27,17 @@
 3. 使用项目内的 `DokanPassthroughOperations`（`IDokanOperations` 实现）并通过 Dokan 反射适配挂载到盘符（兼容 2.2.x API 差异）。
 4. 卸载时释放挂载实例（`IDisposable`）并清理临时目录。
 
+## 驱动选择策略
+
+程序启动时会按顺序自动选择驱动：
+
+1. Dokan（检测 `dokan2.dll`）
+2. ImDisk（检测 `imdisk -h`）
+3. Mock（仅演示，不产生真实盘符）
+
 ## 使用前准备（Windows）
 
-1. 安装 Dokan Runtime（驱动）
+1. 安装 Dokan Runtime（驱动，确保 `dokan2.dll` 可被加载）
 2. 用“管理员身份”启动终端运行程序
 3. 确认目标盘符（如 `R:`）没有被占用
 

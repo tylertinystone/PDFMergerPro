@@ -62,33 +62,41 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
 
     private static IDisposable CreateDokanInstance(DokanPassthroughOperations fs, string mountPoint, bool readOnly)
     {
-        var dokanAsm = AppDomain.CurrentDomain.GetAssemblies()
-            .FirstOrDefault(a => a.GetName().Name == "DokanNet")
-            ?? throw new InvalidOperationException("未加载 DokanNet 程序集。");
-
-        var builderType = dokanAsm.GetType("DokanNet.DokanInstanceBuilder")
-            ?? throw new InvalidOperationException("当前 DokanNet 版本未找到 DokanInstanceBuilder。");
-
-        var optionsType = dokanAsm.GetType("DokanNet.DokanOptions")
-            ?? throw new InvalidOperationException("当前 DokanNet 版本未找到 DokanOptions。");
-
-        var fixedDrive = Enum.Parse(optionsType, "FixedDrive");
-        var options = fixedDrive;
-        if (readOnly)
+        try
         {
-            var writeProtection = Enum.Parse(optionsType, "WriteProtection");
-            options = Enum.ToObject(optionsType, Convert.ToInt32(options) | Convert.ToInt32(writeProtection));
+            var dokanAsm = AppDomain.CurrentDomain.GetAssemblies()
+                .FirstOrDefault(a => a.GetName().Name == "DokanNet")
+                ?? throw new InvalidOperationException("未加载 DokanNet 程序集。");
+
+            var builderType = dokanAsm.GetType("DokanNet.DokanInstanceBuilder")
+                ?? throw new InvalidOperationException("当前 DokanNet 版本未找到 DokanInstanceBuilder。");
+
+            var optionsType = dokanAsm.GetType("DokanNet.DokanOptions")
+                ?? throw new InvalidOperationException("当前 DokanNet 版本未找到 DokanOptions。");
+
+            var fixedDrive = Enum.Parse(optionsType, "FixedDrive");
+            var options = fixedDrive;
+            if (readOnly)
+            {
+                var writeProtection = Enum.Parse(optionsType, "WriteProtection");
+                options = Enum.ToObject(optionsType, Convert.ToInt32(options) | Convert.ToInt32(writeProtection));
+            }
+
+            var builder = CreateBuilder(builderType, dokanAsm, fs);
+            InvokeIfExists(builder, "ConfigureMountPoint", mountPoint);
+            InvokeIfExists(builder, "ConfigureOptions", options);
+
+            var build = builderType.GetMethod("Build", BindingFlags.Public | BindingFlags.Instance)
+                ?? throw new InvalidOperationException("DokanInstanceBuilder.Build 不可用。");
+
+            var instance = build.Invoke(builder, null) as IDisposable;
+            return instance ?? throw new InvalidOperationException("Dokan Build 返回值不可释放或为空。");
         }
-
-        var builder = CreateBuilder(builderType, dokanAsm, fs);
-        InvokeIfExists(builder, "ConfigureMountPoint", mountPoint);
-        InvokeIfExists(builder, "ConfigureOptions", options);
-
-        var build = builderType.GetMethod("Build", BindingFlags.Public | BindingFlags.Instance)
-            ?? throw new InvalidOperationException("DokanInstanceBuilder.Build 不可用。");
-
-        var instance = build.Invoke(builder, null) as IDisposable;
-        return instance ?? throw new InvalidOperationException("Dokan Build 返回值不可释放或为空。");
+        catch (TargetInvocationException ex) when (ex.InnerException is DllNotFoundException dllEx)
+        {
+            throw new InvalidOperationException(
+                $"Dokan Runtime 缺失：{dllEx.Message}。请安装 Dokan Runtime（包含 dokan2.dll），或改用 ImDisk 驱动。", ex);
+        }
     }
 
     private static object CreateBuilder(Type builderType, Assembly dokanAsm, DokanPassthroughOperations fs)
@@ -110,7 +118,6 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
                     continue;
                 }
 
-                // 某些版本构造器第一个参数是 DokanNet.Dokan
                 if (pType.FullName == "DokanNet.Dokan")
                 {
                     args[i] = CreateDokanInstanceObject(dokanAsm, pType);
@@ -160,7 +167,6 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
 
     private static object? TryCreateLogger(Assembly dokanAsm)
     {
-        // 先尝试 NullLogger（通常为无参构造）
         var nullLoggerType = dokanAsm.GetType("DokanNet.Logging.NullLogger");
         if (nullLoggerType is not null)
         {
@@ -171,7 +177,6 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
             }
         }
 
-        // 再尝试 ConsoleLogger：优先无参构造，其次 string 前缀构造
         var consoleLoggerType = dokanAsm.GetType("DokanNet.Logging.ConsoleLogger");
         if (consoleLoggerType is null)
         {
