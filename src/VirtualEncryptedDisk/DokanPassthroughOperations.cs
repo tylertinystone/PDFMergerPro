@@ -181,8 +181,8 @@ public sealed class DokanPassthroughOperations : IDokanOperations
     private static bool IsWildcardMatch(string input, string pattern)
     {
         var regexPattern = "^" + Regex.Escape(pattern)
-            .Replace("\*", ".*")
-            .Replace("\?", ".") + "$";
+            .Replace("\\*", ".*")
+            .Replace("\\?", ".") + "$";
         return Regex.IsMatch(input, regexPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 

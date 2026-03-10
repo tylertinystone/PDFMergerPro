@@ -80,20 +80,7 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
             options = Enum.ToObject(optionsType, Convert.ToInt32(options) | Convert.ToInt32(writeProtection));
         }
 
-        var ctor = builderType.GetConstructors()
-            .OrderBy(c => c.GetParameters().Length)
-            .FirstOrDefault(c => c.GetParameters().Length >= 1)
-            ?? throw new InvalidOperationException("DokanInstanceBuilder 构造器不可用。");
-
-        var ctorArgs = ctor.GetParameters().Length switch
-        {
-            1 => new object?[] { fs },
-            2 => new object?[] { null, fs },
-            _ => throw new InvalidOperationException("不支持的 DokanInstanceBuilder 构造签名。")
-        };
-
-        var builder = ctor.Invoke(ctorArgs);
-
+        var builder = CreateBuilder(builderType, dokanAsm, fs);
         InvokeIfExists(builder, "ConfigureMountPoint", mountPoint);
         InvokeIfExists(builder, "ConfigureOptions", options);
 
@@ -102,6 +89,72 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
 
         var instance = build.Invoke(builder, null) as IDisposable;
         return instance ?? throw new InvalidOperationException("Dokan Build 返回值不可释放或为空。");
+    }
+
+    private static object CreateBuilder(Type builderType, Assembly dokanAsm, DokanPassthroughOperations fs)
+    {
+        var ctors = builderType.GetConstructors().OrderBy(c => c.GetParameters().Length);
+        foreach (var ctor in ctors)
+        {
+            var parameters = ctor.GetParameters();
+            var args = new object?[parameters.Length];
+            var ok = true;
+
+            for (var i = 0; i < parameters.Length; i++)
+            {
+                var pType = parameters[i].ParameterType;
+
+                if (pType.IsInstanceOfType(fs))
+                {
+                    args[i] = fs;
+                    continue;
+                }
+
+                // 某些版本构造器第一个参数是 DokanNet.Dokan
+                if (pType.FullName == "DokanNet.Dokan")
+                {
+                    args[i] = CreateDokanInstanceObject(dokanAsm, pType);
+                    continue;
+                }
+
+                if (parameters[i].HasDefaultValue || Nullable.GetUnderlyingType(pType) is not null || !pType.IsValueType)
+                {
+                    args[i] = parameters[i].DefaultValue;
+                    continue;
+                }
+
+                ok = false;
+                break;
+            }
+
+            if (ok)
+            {
+                return ctor.Invoke(args);
+            }
+        }
+
+        throw new InvalidOperationException("无法匹配 DokanInstanceBuilder 构造签名，请检查 DokanNet 版本。");
+    }
+
+    private static object CreateDokanInstanceObject(Assembly dokanAsm, Type dokanType)
+    {
+        var loggerType = dokanAsm.GetType("DokanNet.Logging.ConsoleLogger");
+        if (loggerType is not null)
+        {
+            var logger = Activator.CreateInstance(loggerType, "[Dokan] ");
+            if (logger is not null)
+            {
+                var ctorWithLogger = dokanType.GetConstructors()
+                    .FirstOrDefault(c => c.GetParameters().Length == 1 && c.GetParameters()[0].ParameterType.IsInstanceOfType(logger));
+                if (ctorWithLogger is not null)
+                {
+                    return ctorWithLogger.Invoke(new[] { logger });
+                }
+            }
+        }
+
+        return Activator.CreateInstance(dokanType)
+               ?? throw new InvalidOperationException("无法创建 Dokan 实例。");
     }
 
     private static void InvokeIfExists(object target, string methodName, object argument)
