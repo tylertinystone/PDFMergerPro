@@ -6,11 +6,13 @@ namespace VirtualEncryptedDisk;
 
 /// <summary>
 /// 基于 Dokan.NET 的挂载实现（不依赖 DokanNet.Mirror）。
-/// 使用 DokanInstanceBuilder API，兼容新版本 DokanNet。
+/// 使用 Dokan 实例 API，兼容 2.2.x 版本。
 /// </summary>
 public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
 {
+    private readonly Dokan _dokan = new(new ConsoleLogger("[Dokan] "));
     private string? _mountedRoot;
+    private string? _mountPoint;
     private IDokanInstance? _instance;
 
     public async Task MountAsync(VirtualDiskConfig config, byte[] decryptedDiskBytes, CancellationToken ct = default)
@@ -41,12 +43,8 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
 
         try
         {
-            _instance = await Task.Run(() =>
-                new DokanInstanceBuilder(fs)
-                    .ConfigureMountPoint(mountPoint)
-                    .ConfigureOptions(options)
-                    .ConfigureLogger(new ConsoleLogger("[Dokan] "))
-                    .Build(), ct);
+            _instance = await Task.Run(() => _dokan.Mount(fs, mountPoint, options, threadCount: 5), ct);
+            _mountPoint = mountPoint;
         }
         catch
         {
@@ -61,6 +59,10 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
     {
         _instance?.Dispose();
         _instance = null;
+
+        var normalized = _mountPoint ?? NormalizeMountPoint(mountPoint);
+        _dokan.RemoveMountPoint(normalized);
+        _mountPoint = null;
 
         if (_mountedRoot is not null && Directory.Exists(_mountedRoot))
         {
