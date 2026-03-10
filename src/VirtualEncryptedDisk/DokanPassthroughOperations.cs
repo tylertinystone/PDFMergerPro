@@ -30,7 +30,8 @@ public sealed class DokanPassthroughOperations : IDokanOperations
     {
         var path = MapPath(fileName);
 
-        if (Directory.Exists(path))
+        // 根目录
+        if (fileName == "\\" || string.IsNullOrEmpty(fileName))
         {
             info.IsDirectory = true;
             return NtStatus.Success;
@@ -38,6 +39,35 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
         var canWrite = (access & (FileAccess.WriteData | FileAccess.AppendData | FileAccess.GenericWrite)) != 0;
         if (_readOnly && canWrite)
+        {
+            return NtStatus.AccessDenied;
+        }
+
+        var isDirectoryRequest = info.IsDirectory || attributes.HasFlag(FileAttributes.Directory);
+        if (isDirectoryRequest)
+        {
+            info.IsDirectory = true;
+
+            if (Directory.Exists(path))
+            {
+                return NtStatus.Success;
+            }
+
+            if (mode == FileMode.Open)
+            {
+                return NtStatus.ObjectNameNotFound;
+            }
+
+            if (_readOnly)
+            {
+                return NtStatus.AccessDenied;
+            }
+
+            Directory.CreateDirectory(path);
+            return NtStatus.Success;
+        }
+
+        if (Directory.Exists(path))
         {
             return NtStatus.AccessDenied;
         }
