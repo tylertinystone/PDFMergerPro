@@ -44,14 +44,16 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         }
 
         var isDirectoryRequest = info.IsDirectory || attributes.HasFlag(FileAttributes.Directory);
+        if (Directory.Exists(path))
+        {
+            // 目录存在时，无论是否带有目录标记，都按目录打开处理，避免资源管理器访问目录失败。
+            info.IsDirectory = true;
+            return mode == FileMode.CreateNew ? NtStatus.ObjectNameCollision : NtStatus.Success;
+        }
+
         if (isDirectoryRequest)
         {
             info.IsDirectory = true;
-
-            if (Directory.Exists(path))
-            {
-                return NtStatus.Success;
-            }
 
             if (mode == FileMode.Open)
             {
@@ -65,11 +67,6 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
             Directory.CreateDirectory(path);
             return NtStatus.Success;
-        }
-
-        if (Directory.Exists(path))
-        {
-            return NtStatus.AccessDenied;
         }
 
         if (mode == FileMode.Open && !File.Exists(path))
