@@ -7,7 +7,7 @@ var cfg = new VirtualDiskConfig(
     ReadOnly: false
 );
 
-IThirdPartyDiskDriver driver = new ImDiskThirdPartyDiskDriver();
+IThirdPartyDiskDriver driver = new DokanThirdPartyDiskDriver();
 
 var manager = new SecureVirtualDiskManager(
     new EncryptionService(),

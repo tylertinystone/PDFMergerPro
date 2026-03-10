@@ -4,7 +4,7 @@
 
 - 使用 **AES-GCM + PBKDF2** 对虚拟硬盘容器加密。
 - 用户必须输入正确密码后，才会调用驱动执行挂载。
-- 默认提供 **ImDisk** 真实驱动适配器（不是仅日志模拟）。
+- 默认提供 **Dokan.NET** 驱动适配器（已从 ImDisk 方案切换）。
 
 ## 目录
 
@@ -12,31 +12,28 @@
 - `SecureVirtualDiskManager.cs`：核心流程（创建容器、验密、挂载/卸载）。
 - `EncryptionService.cs`：加解密与密钥派生。
 - `ContainerFileService.cs`：容器文件格式读写。
-- `ImDiskThirdPartyDiskDriver.cs`：通过 `imdisk` 命令实际挂载盘符。
+- `DokanThirdPartyDiskDriver.cs`：通过 Dokan.NET 挂载盘符。
 - `IThirdPartyDiskDriver.cs`：第三方驱动统一抽象。
 
-## 为什么“密码正确但看不到盘符”
+## Dokan.NET 挂载方式说明
 
-之前如果使用的是 `MockThirdPartyDiskDriver`，它只打印日志，不会真的创建盘符。
-现在默认改为 `ImDiskThirdPartyDiskDriver`，会调用 ImDisk 真正挂载。
+`DokanThirdPartyDiskDriver` 的流程：
 
-此外，新版本会输出更具体的失败细节（退出码、stdout/stderr）：
-
-- `imdisk` 不在 PATH / 未安装。
-- 盘符已被占用。
-- 权限不足（未管理员运行）。
-- ImDisk 命令执行失败。
+1. 解密得到内存中的虚拟磁盘数据。
+2. 写入临时目录中的 `disk.bin`。
+3. 使用 `DokanNet.Mirror` 把该目录镜像挂载到盘符（如 `R:`）。
+4. 卸载时调用 `Dokan.RemoveMountPoint` 并清理临时目录。
 
 ## 使用前准备（Windows）
 
-1. 安装 ImDisk Toolkit（确保 `imdisk.exe` 在 PATH 中）。
-2. 用“管理员身份”启动终端运行程序。
-3. 确认目标盘符（如 `R:`）没有被占用。
+1. 安装 Dokan Runtime（驱动）
+2. 用“管理员身份”启动终端运行程序
+3. 确认目标盘符（如 `R:`）没有被占用
 
 ## 快速接入真实第三方驱动
 
 1. 保留 `IThirdPartyDiskDriver` 接口。
-2. 可按同样方式新增 `DokanDiskDriver` / `WinFspDiskDriver`。
+2. 可按同样方式新增 `WinFspDiskDriver` / `ImDiskDriver`。
 3. 在 `Program.cs` 中替换为你的驱动实现。
 
 ## 安全建议
