@@ -181,9 +181,10 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersista
             Console.WriteLine($"Dokan logs: {logFilePath}");
             return new TraceLogger();
         }
-        catch
+        catch (Exception ex)
         {
             CleanupLogger();
+            DiagnosticLogger.Error("CreateLogger failed, fallback to console logger.", ex);
             return new ConsoleLogger("[Dokan] ");
         }
     }

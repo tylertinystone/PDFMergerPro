@@ -46,94 +46,105 @@ public sealed class DokanPassthroughOperations : IDokanOperations
     {
         var path = MapPath(fileName);
 
-        // 根目录
-        if (fileName == "\\" || string.IsNullOrEmpty(fileName))
+        NtStatus Fail(NtStatus status, string reason)
         {
-            info.IsDirectory = true;
-            return NtStatus.Success;
+            DiagnosticLogger.Info($"CreateFile status={status}. File='{fileName}', Path='{path}', Mode={mode}, Access={access}, Reason={reason}.");
+            return status;
         }
 
-        var canWrite = (access & (FileAccess.WriteData | FileAccess.AppendData | FileAccess.GenericWrite)) != 0;
-        if (_readOnly && canWrite)
+        try
         {
-            return NtStatus.AccessDenied;
-        }
-
-        var isDirectoryRequest = info.IsDirectory || attributes.HasFlag(FileAttributes.Directory);
-        if (Directory.Exists(path))
-        {
-            // 目录存在时，无论是否带有目录标记，都按目录打开处理，避免资源管理器访问目录失败。
-            info.IsDirectory = true;
-            return mode == FileMode.CreateNew ? NtStatus.ObjectNameCollision : NtStatus.Success;
-        }
-
-        if (isDirectoryRequest)
-        {
-            info.IsDirectory = true;
-
-            if (mode == FileMode.Open)
+            // 根目录
+            if (fileName == "\\" || string.IsNullOrEmpty(fileName))
             {
-                return NtStatus.ObjectNameNotFound;
+                info.IsDirectory = true;
+                return NtStatus.Success;
             }
 
-            if (_readOnly)
+            var canWrite = (access & (FileAccess.WriteData | FileAccess.AppendData | FileAccess.GenericWrite)) != 0;
+            if (_readOnly && canWrite)
             {
-                return NtStatus.AccessDenied;
+                return Fail(NtStatus.AccessDenied, "read-only write attempt");
             }
 
-            Directory.CreateDirectory(path);
-            return NtStatus.Success;
-        }
+            var isDirectoryRequest = info.IsDirectory || attributes.HasFlag(FileAttributes.Directory);
+            if (Directory.Exists(path))
+            {
+                info.IsDirectory = true;
+                return mode == FileMode.CreateNew ? Fail(NtStatus.ObjectNameCollision, "directory already exists") : NtStatus.Success;
+            }
 
-        var exists = File.Exists(path);
-        switch (mode)
-        {
-            case FileMode.Open:
-                if (!exists)
+            if (isDirectoryRequest)
+            {
+                info.IsDirectory = true;
+
+                if (mode == FileMode.Open)
                 {
-                    return NtStatus.ObjectNameNotFound;
+                    return Fail(NtStatus.ObjectNameNotFound, "directory open target not found");
                 }
-                break;
 
-            case FileMode.CreateNew:
-                if (exists)
+                if (_readOnly)
                 {
-                    return NtStatus.ObjectNameCollision;
+                    return Fail(NtStatus.AccessDenied, "read-only directory create");
                 }
-                if (_readOnly) return NtStatus.AccessDenied;
-                EnsureParentDirectory(path);
-                break;
 
-            case FileMode.Create:
-                if (_readOnly) return NtStatus.AccessDenied;
-                EnsureParentDirectory(path);
-                // 仅在不存在时创建占位文件，避免复制过程中被重复截断。
-                if (!exists)
-                {
-                    using (File.Create(path)) { }
-                }
-                break;
+                Directory.CreateDirectory(path);
+                return NtStatus.Success;
+            }
 
-            case FileMode.OpenOrCreate:
-                if (!exists)
-                {
-                    if (_readOnly) return NtStatus.AccessDenied;
+            var exists = File.Exists(path);
+            switch (mode)
+            {
+                case FileMode.Open:
+                    if (!exists)
+                    {
+                        return Fail(NtStatus.ObjectNameNotFound, "file open target not found");
+                    }
+                    break;
+
+                case FileMode.CreateNew:
+                    if (exists)
+                    {
+                        return Fail(NtStatus.ObjectNameCollision, "file already exists");
+                    }
+                    if (_readOnly) return Fail(NtStatus.AccessDenied, "read-only create new");
                     EnsureParentDirectory(path);
-                    using (File.Create(path)) { }
-                }
-                break;
+                    break;
 
-            case FileMode.Truncate:
-                if (!exists)
-                {
-                    return NtStatus.ObjectNameNotFound;
-                }
-                if (_readOnly) return NtStatus.AccessDenied;
-                // 交由后续写入/SetEndOfFile 流程处理长度变更，避免与复制流程冲突。
-                break;
+                case FileMode.Create:
+                    if (_readOnly) return Fail(NtStatus.AccessDenied, "read-only create");
+                    EnsureParentDirectory(path);
+                    if (!exists)
+                    {
+                        using (File.Create(path)) { }
+                    }
+                    break;
+
+                case FileMode.OpenOrCreate:
+                    if (!exists)
+                    {
+                        if (_readOnly) return Fail(NtStatus.AccessDenied, "read-only open-or-create");
+                        EnsureParentDirectory(path);
+                        using (File.Create(path)) { }
+                    }
+                    break;
+
+                case FileMode.Truncate:
+                    if (!exists)
+                    {
+                        return Fail(NtStatus.ObjectNameNotFound, "truncate target not found");
+                    }
+                    if (_readOnly) return Fail(NtStatus.AccessDenied, "read-only truncate");
+                    break;
+            }
+
+            return NtStatus.Success;
         }
-
-        return NtStatus.Success;
+        catch (Exception ex)
+        {
+            DiagnosticLogger.Error($"CreateFile exception. File='{fileName}', Path='{path}', Mode={mode}, Access={access}.", ex);
+            return NtStatus.Unsuccessful;
+        }
     }
 
     private static void EnsureParentDirectory(string path)
@@ -153,33 +164,43 @@ public sealed class DokanPassthroughOperations : IDokanOperations
     {
         bytesRead = 0;
         var path = MapPath(fileName);
-        if (!File.Exists(path))
-        {
-            return NtStatus.ObjectNameNotFound;
-        }
 
-        using var fs = new FileStream(path, FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        if (offset >= fs.Length)
+        try
         {
-            return NtStatus.Success;
-        }
-
-        fs.Position = offset;
-
-        var total = 0;
-        while (total < buffer.Length)
-        {
-            var read = fs.Read(buffer, total, buffer.Length - total);
-            if (read == 0)
+            if (!File.Exists(path))
             {
-                break;
+                DiagnosticLogger.Info($"ReadFile target not found. File='{fileName}', Path='{path}', Offset={offset}, Buffer={buffer.Length}.");
+                return NtStatus.ObjectNameNotFound;
             }
 
-            total += read;
-        }
+            using var fs = new FileStream(path, FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (offset >= fs.Length)
+            {
+                return NtStatus.Success;
+            }
 
-        bytesRead = total;
-        return NtStatus.Success;
+            fs.Position = offset;
+
+            var total = 0;
+            while (total < buffer.Length)
+            {
+                var read = fs.Read(buffer, total, buffer.Length - total);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                total += read;
+            }
+
+            bytesRead = total;
+            return NtStatus.Success;
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.Error($"ReadFile exception. File='{fileName}', Path='{path}', Offset={offset}, Buffer={buffer.Length}.", ex);
+            return NtStatus.Unsuccessful;
+        }
     }
 
     public NtStatus WriteFile(string fileName, byte[] buffer, out int bytesWritten, long offset, IDokanFileInfo info)
@@ -187,21 +208,31 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         bytesWritten = 0;
         if (_readOnly)
         {
+            DiagnosticLogger.Info($"WriteFile denied due to read-only. File='{fileName}', Offset={offset}, Buffer={buffer.Length}.");
             return NtStatus.AccessDenied;
         }
 
         var path = MapPath(fileName);
-        var parent = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(parent))
-        {
-            Directory.CreateDirectory(parent);
-        }
 
-        using var fs = new FileStream(path, FileMode.OpenOrCreate, System.IO.FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-        fs.Position = info.WriteToEndOfFile ? fs.Length : offset;
-        fs.Write(buffer, 0, buffer.Length);
-        bytesWritten = buffer.Length;
-        return NtStatus.Success;
+        try
+        {
+            var parent = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(parent))
+            {
+                Directory.CreateDirectory(parent);
+            }
+
+            using var fs = new FileStream(path, FileMode.OpenOrCreate, System.IO.FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+            fs.Position = info.WriteToEndOfFile ? fs.Length : offset;
+            fs.Write(buffer, 0, buffer.Length);
+            bytesWritten = buffer.Length;
+            return NtStatus.Success;
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.Error($"WriteFile exception. File='{fileName}', Path='{path}', Offset={offset}, Buffer={buffer.Length}, WriteToEnd={info.WriteToEndOfFile}.", ex);
+            return NtStatus.Unsuccessful;
+        }
     }
 
     public NtStatus FlushFileBuffers(string fileName, IDokanFileInfo info) => NtStatus.Success;
@@ -406,10 +437,24 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
     public NtStatus SetEndOfFile(string fileName, long length, IDokanFileInfo info)
     {
-        if (_readOnly) return NtStatus.AccessDenied;
-        using var fs = new FileStream(MapPath(fileName), FileMode.OpenOrCreate, System.IO.FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-        fs.SetLength(length);
-        return NtStatus.Success;
+        if (_readOnly)
+        {
+            DiagnosticLogger.Info($"SetEndOfFile denied due to read-only. File='{fileName}', Length={length}.");
+            return NtStatus.AccessDenied;
+        }
+
+        var path = MapPath(fileName);
+        try
+        {
+            using var fs = new FileStream(path, FileMode.OpenOrCreate, System.IO.FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+            fs.SetLength(length);
+            return NtStatus.Success;
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.Error($"SetEndOfFile exception. File='{fileName}', Path='{path}', Length={length}.", ex);
+            return NtStatus.Unsuccessful;
+        }
     }
 
     public NtStatus SetAllocationSize(string fileName, long length, IDokanFileInfo info)
