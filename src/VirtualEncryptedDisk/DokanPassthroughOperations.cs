@@ -90,7 +90,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
             return NtStatus.ObjectNameNotFound;
         }
 
-        using var fs = new FileStream(path, FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite);
+        using var fs = new FileStream(path, FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         fs.Position = offset;
         bytesRead = fs.Read(buffer, 0, buffer.Length);
         return NtStatus.Success;
@@ -111,7 +111,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
             Directory.CreateDirectory(parent);
         }
 
-        using var fs = new FileStream(path, FileMode.OpenOrCreate, System.IO.FileAccess.Write, FileShare.ReadWrite);
+        using var fs = new FileStream(path, FileMode.OpenOrCreate, System.IO.FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
         fs.Position = offset;
         fs.Write(buffer, 0, buffer.Length);
         bytesWritten = buffer.Length;
@@ -253,22 +253,47 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
         var oldPath = MapPath(oldName);
         var newPath = MapPath(newName);
-        if (Directory.Exists(oldPath))
+
+        try
         {
-            if (replace && Directory.Exists(newPath)) Directory.Delete(newPath, recursive: true);
-            Directory.Move(oldPath, newPath);
+            var parent = Path.GetDirectoryName(newPath);
+            if (!string.IsNullOrEmpty(parent))
+            {
+                Directory.CreateDirectory(parent);
+            }
+
+            if (Directory.Exists(oldPath))
+            {
+                if (replace && Directory.Exists(newPath)) Directory.Delete(newPath, recursive: true);
+                Directory.Move(oldPath, newPath);
+                return NtStatus.Success;
+            }
+
+            if (replace && File.Exists(newPath))
+            {
+                File.Replace(oldPath, newPath, destinationBackupFileName: null, ignoreMetadataErrors: true);
+            }
+            else
+            {
+                File.Move(oldPath, newPath);
+            }
+
             return NtStatus.Success;
         }
-
-        if (replace && File.Exists(newPath)) File.Delete(newPath);
-        File.Move(oldPath, newPath);
-        return NtStatus.Success;
+        catch (IOException)
+        {
+            return NtStatus.SharingViolation;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return NtStatus.AccessDenied;
+        }
     }
 
     public NtStatus SetEndOfFile(string fileName, long length, IDokanFileInfo info)
     {
         if (_readOnly) return NtStatus.AccessDenied;
-        using var fs = new FileStream(MapPath(fileName), FileMode.OpenOrCreate, System.IO.FileAccess.Write, FileShare.ReadWrite);
+        using var fs = new FileStream(MapPath(fileName), FileMode.OpenOrCreate, System.IO.FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
         fs.SetLength(length);
         return NtStatus.Success;
     }
