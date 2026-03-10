@@ -5,6 +5,7 @@ namespace VirtualEncryptedDisk;
 
 public sealed class ContainerFileService
 {
+    private const int MaxChunkSize = int.MaxValue - 1024;
     private static readonly byte[] Magic = Encoding.ASCII.GetBytes("VED1");
 
     public void Write(string path, EncryptedPayload payload)
@@ -57,6 +58,11 @@ public sealed class ContainerFileService
 
     private static void WriteChunk(Stream stream, byte[] bytes)
     {
+        if (bytes.Length < 0 || bytes.Length > MaxChunkSize)
+        {
+            throw new InvalidDataException($"容器字段过大：{bytes.Length} bytes。");
+        }
+
         Span<byte> len = stackalloc byte[4];
         BinaryPrimitives.WriteInt32LittleEndian(len, bytes.Length);
         stream.Write(len);
@@ -68,9 +74,9 @@ public sealed class ContainerFileService
         Span<byte> len = stackalloc byte[4];
         stream.ReadExactly(len);
         var size = BinaryPrimitives.ReadInt32LittleEndian(len);
-        if (size < 0 || size > 1024 * 1024 * 1024)
+        if (size < 0 || size > MaxChunkSize)
         {
-            throw new InvalidDataException("容器字段长度无效。");
+            throw new InvalidDataException($"容器字段长度无效：{size}。最大支持 {MaxChunkSize}。");
         }
 
         var buffer = new byte[size];
