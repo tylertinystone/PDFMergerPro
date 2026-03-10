@@ -10,11 +10,13 @@ namespace VirtualEncryptedDisk;
 public sealed class DokanPassthroughOperations : IDokanOperations
 {
     private readonly string _root;
+    private readonly string _rootFullPath;
     private readonly bool _readOnly;
 
     public DokanPassthroughOperations(string root, bool readOnly)
     {
         _root = root;
+        _rootFullPath = EnsureTrailingSeparator(Path.GetFullPath(root));
         _readOnly = readOnly;
     }
 
@@ -22,6 +24,21 @@ public sealed class DokanPassthroughOperations : IDokanOperations
     {
         var relative = fileName.TrimStart('\\');
         return Path.Combine(_root, relative);
+    }
+
+    private bool TryMapPathInRoot(string fileName, out string fullPath)
+    {
+        var mappedPath = MapPath(fileName);
+        fullPath = Path.GetFullPath(mappedPath);
+        return fullPath.StartsWith(_rootFullPath, StringComparison.OrdinalIgnoreCase)
+               || string.Equals(fullPath, _rootFullPath.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string EnsureTrailingSeparator(string path)
+    {
+        return path.EndsWith(Path.DirectorySeparatorChar)
+            ? path
+            : path + Path.DirectorySeparatorChar;
     }
 
     public NtStatus CreateFile(string fileName, FileAccess access, FileShare share, FileMode mode, FileOptions options,
@@ -275,7 +292,10 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         IDokanFileInfo info)
     {
         if (_readOnly) return NtStatus.AccessDenied;
-        var path = MapPath(fileName);
+        if (!TryMapPathInRoot(fileName, out var path))
+        {
+            return NtStatus.AccessDenied;
+        }
 
         try
         {
