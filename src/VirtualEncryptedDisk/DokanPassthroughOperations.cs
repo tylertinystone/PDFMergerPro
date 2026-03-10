@@ -91,8 +91,26 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         }
 
         using var fs = new FileStream(path, FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        if (offset >= fs.Length)
+        {
+            return NtStatus.Success;
+        }
+
         fs.Position = offset;
-        bytesRead = fs.Read(buffer, 0, buffer.Length);
+
+        var total = 0;
+        while (total < buffer.Length)
+        {
+            var read = fs.Read(buffer, total, buffer.Length - total);
+            if (read == 0)
+            {
+                break;
+            }
+
+            total += read;
+        }
+
+        bytesRead = total;
         return NtStatus.Success;
     }
 
@@ -112,7 +130,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         }
 
         using var fs = new FileStream(path, FileMode.OpenOrCreate, System.IO.FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-        fs.Position = offset;
+        fs.Position = info.WriteToEndOfFile ? fs.Length : offset;
         fs.Write(buffer, 0, buffer.Length);
         bytesWritten = buffer.Length;
         return NtStatus.Success;
