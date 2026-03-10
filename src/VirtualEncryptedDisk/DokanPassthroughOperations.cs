@@ -314,9 +314,23 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
     public NtStatus SetFileAttributes(string fileName, FileAttributes attributes, IDokanFileInfo info)
     {
-        if (_readOnly) return NtStatus.AccessDenied;
-        File.SetAttributes(MapPath(fileName), attributes);
-        return NtStatus.Success;
+        if (_readOnly)
+        {
+            DiagnosticLogger.Info($"SetFileAttributes denied due to read-only. File='{fileName}', Attr={attributes}.");
+            return NtStatus.AccessDenied;
+        }
+
+        var path = MapPath(fileName);
+        try
+        {
+            File.SetAttributes(path, attributes);
+            return NtStatus.Success;
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.Error($"SetFileAttributes exception. File='{fileName}', Path='{path}', Attr={attributes}.", ex);
+            return NtStatus.Unsuccessful;
+        }
     }
 
     public NtStatus SetFileTime(string fileName, DateTime? creationTime, DateTime? lastAccessTime, DateTime? lastWriteTime,
@@ -376,18 +390,44 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
     public NtStatus DeleteFile(string fileName, IDokanFileInfo info)
     {
-        if (_readOnly) return NtStatus.AccessDenied;
+        if (_readOnly)
+        {
+            DiagnosticLogger.Info($"DeleteFile denied due to read-only. File='{fileName}'.");
+            return NtStatus.AccessDenied;
+        }
+
         var path = MapPath(fileName);
-        if (File.Exists(path)) File.Delete(path);
-        return NtStatus.Success;
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+            return NtStatus.Success;
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.Error($"DeleteFile exception. File='{fileName}', Path='{path}'.", ex);
+            return NtStatus.Unsuccessful;
+        }
     }
 
     public NtStatus DeleteDirectory(string fileName, IDokanFileInfo info)
     {
-        if (_readOnly) return NtStatus.AccessDenied;
+        if (_readOnly)
+        {
+            DiagnosticLogger.Info($"DeleteDirectory denied due to read-only. File='{fileName}'.");
+            return NtStatus.AccessDenied;
+        }
+
         var path = MapPath(fileName);
-        if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
-        return NtStatus.Success;
+        try
+        {
+            if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+            return NtStatus.Success;
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.Error($"DeleteDirectory exception. File='{fileName}', Path='{path}'.", ex);
+            return NtStatus.Unsuccessful;
+        }
     }
 
     public NtStatus MoveFile(string oldName, string newName, bool replace, IDokanFileInfo info)
@@ -494,15 +534,52 @@ public sealed class DokanPassthroughOperations : IDokanOperations
     public NtStatus GetFileSecurity(string fileName, out FileSystemSecurity? security,
         AccessControlSections sections, IDokanFileInfo info)
     {
-        security = null;
-        return NtStatus.NotImplemented;
+        var path = MapPath(fileName);
+
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                security = new DirectorySecurity();
+                return NtStatus.Success;
+            }
+
+            if (File.Exists(path))
+            {
+                security = new FileSecurity();
+                return NtStatus.Success;
+            }
+
+            security = null;
+            DiagnosticLogger.Info($"GetFileSecurity target not found. File='{fileName}', Path='{path}'.");
+            return NtStatus.ObjectNameNotFound;
+        }
+        catch (Exception ex)
+        {
+            security = null;
+            DiagnosticLogger.Error($"GetFileSecurity exception. File='{fileName}', Path='{path}', Sections={sections}.", ex);
+            return NtStatus.Unsuccessful;
+        }
     }
 
     public NtStatus SetFileSecurity(string fileName, FileSystemSecurity security,
         AccessControlSections sections, IDokanFileInfo info)
     {
-        if (_readOnly) return NtStatus.AccessDenied;
-        return NtStatus.NotImplemented;
+        if (_readOnly)
+        {
+            DiagnosticLogger.Info($"SetFileSecurity denied due to read-only. File='{fileName}', Sections={sections}.");
+            return NtStatus.AccessDenied;
+        }
+
+        var path = MapPath(fileName);
+        if (!File.Exists(path) && !Directory.Exists(path))
+        {
+            DiagnosticLogger.Info($"SetFileSecurity target not found. File='{fileName}', Path='{path}', Sections={sections}.");
+            return NtStatus.ObjectNameNotFound;
+        }
+
+        DiagnosticLogger.Info($"SetFileSecurity accepted (no-op). File='{fileName}', Path='{path}', Sections={sections}, SecurityType={security.GetType().Name}.");
+        return NtStatus.Success;
     }
 
     public NtStatus FindStreams(string fileName, out IList<FileInformation> streams, IDokanFileInfo info)
