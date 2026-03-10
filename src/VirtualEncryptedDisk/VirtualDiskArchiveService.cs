@@ -57,10 +57,45 @@ public static class VirtualDiskArchiveService
             foreach (var file in Directory.EnumerateFiles(rootDirectory, "*", SearchOption.AllDirectories))
             {
                 var rel = Path.GetRelativePath(rootDirectory, file).Replace('\\', '/');
-                zip.CreateEntryFromFile(file, rel, CompressionLevel.Fastest);
+                var entry = zip.CreateEntry(rel, CompressionLevel.Fastest);
+
+                using var entryStream = entry.Open();
+                using var input = OpenReadWithRetries(file, maxAttempts: 5, delayMs: 200);
+                input.CopyTo(entryStream);
             }
         }
 
         return ms.ToArray();
+    }
+
+    private static FileStream OpenReadWithRetries(string filePath, int maxAttempts, int delayMs)
+    {
+        Exception? lastError = null;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                return new FileStream(
+                    filePath,
+                    FileMode.Open,
+                    System.IO.FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete);
+            }
+            catch (IOException ex)
+            {
+                lastError = ex;
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                lastError = ex;
+            }
+
+            if (attempt < maxAttempts)
+            {
+                Thread.Sleep(delayMs);
+            }
+        }
+
+        throw new IOException($"无法读取文件 '{filePath}'，该文件可能仍被其他进程占用。", lastError);
     }
 }

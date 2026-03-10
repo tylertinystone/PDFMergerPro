@@ -30,7 +30,9 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersista
             throw new InvalidOperationException($"盘符 {mountPoint} 已被占用。");
         }
 
-        var root = Path.Combine(Path.GetTempPath(), $"ved-dokan-{Guid.NewGuid():N}");
+        var runtimeBase = ResolveRuntimeBasePath(config);
+        Directory.CreateDirectory(runtimeBase);
+        var root = Path.Combine(runtimeBase, $"ved-dokan-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
 
         // 将容器明文解释为目录归档，并解压到挂载后端目录。
@@ -69,6 +71,7 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersista
         }
 
         _mountedRoot = root;
+        await Task.CompletedTask;
     }
 
     public Task UnmountAsync(string mountPoint, CancellationToken ct = default)
@@ -80,7 +83,7 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersista
         {
             if (_mountedRoot is not null && Directory.Exists(_mountedRoot))
             {
-                _lastArchiveBytes = VirtualDiskArchiveService.CreateFromDirectory(_mountedRoot);
+                _lastArchiveBytes = CaptureArchiveWithRetries(_mountedRoot, maxAttempts: 10, delayMs: 200);
             }
         }
 
@@ -114,8 +117,43 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersista
                 return null;
             }
 
-            return VirtualDiskArchiveService.CreateFromDirectory(_mountedRoot);
+            return CaptureArchiveWithRetries(_mountedRoot, maxAttempts: 3, delayMs: 100);
         }
+    }
+
+    private static byte[] CaptureArchiveWithRetries(string root, int maxAttempts, int delayMs)
+    {
+        Exception? lastError = null;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                return VirtualDiskArchiveService.CreateFromDirectory(root);
+            }
+            catch (IOException ex)
+            {
+                lastError = ex;
+            }
+
+            if (attempt < maxAttempts)
+            {
+                Thread.Sleep(delayMs);
+            }
+        }
+
+        throw new IOException("无法在卸载时完成归档，部分文件可能仍被其他进程占用。", lastError);
+    }
+
+    private static string ResolveRuntimeBasePath(VirtualDiskConfig config)
+    {
+        if (!string.IsNullOrWhiteSpace(config.RuntimeRootPath))
+        {
+            return Path.GetFullPath(config.RuntimeRootPath);
+        }
+
+        var containerFullPath = Path.GetFullPath(config.ContainerPath);
+        var containerDir = Path.GetDirectoryName(containerFullPath) ?? Directory.GetCurrentDirectory();
+        return Path.Combine(containerDir, ".ved-runtime");
     }
 
     private ILogger CreateLogger()

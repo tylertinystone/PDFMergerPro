@@ -23,9 +23,9 @@
 当前实现改为：
 
 1. 解密得到内存中的虚拟磁盘数据。
-2. 写入临时目录中的 `disk.bin`。
+2. 将明文归档展开到运行目录（默认：容器同目录下 `.ved-runtime`，也可通过 `RuntimeRootPath` 指定）。
 3. 使用项目内的 `DokanPassthroughOperations`（`IDokanOperations` 实现）并通过 `DokanInstanceBuilder` 直接挂载到盘符（不使用反射）。
-4. 卸载时释放挂载实例（`IDisposable`）并清理临时目录。
+4. 卸载时释放挂载实例（`IDisposable`），回收运行目录并写回容器。
 
 ## 使用前准备（Windows）
 
@@ -42,6 +42,7 @@
 ## 安全建议
 
 - 生产环境请将密码输入改为安全输入控件，并考虑敏感内存清理。
+- 挂载期间会存在“已解密明文文件”（用于给 Dokan 提供后端目录）。建议将容器与 `RuntimeRootPath` 放在受 BitLocker/VeraCrypt 等保护的卷，或放在受控 RAM Disk。
 - 可加入 TPM/证书二次认证，避免单一口令风险。
 - 建议增加容器完整性版本头、审计日志与失败重试锁定策略。
 
