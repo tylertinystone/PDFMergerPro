@@ -28,18 +28,22 @@ public sealed class SecureVirtualDiskManager
         await Task.CompletedTask;
     }
 
-    public async Task<bool> MountWithPasswordAsync(VirtualDiskConfig config, string password, CancellationToken ct = default)
+    public async Task<MountResult> MountWithPasswordAsync(VirtualDiskConfig config, string password, CancellationToken ct = default)
     {
         try
         {
             var payload = _container.Read(config.ContainerPath);
             var plain = _encryption.Decrypt(payload, password);
             await _driver.MountAsync(config, plain, ct);
-            return true;
+            return MountResult.Mounted();
         }
         catch (CryptographicException)
         {
-            return false;
+            return MountResult.InvalidPassword();
+        }
+        catch (Exception ex)
+        {
+            return MountResult.DriverError(ex.Message);
         }
     }
 

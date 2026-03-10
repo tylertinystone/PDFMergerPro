@@ -7,10 +7,12 @@ var cfg = new VirtualDiskConfig(
     ReadOnly: false
 );
 
+IThirdPartyDiskDriver driver = new ImDiskThirdPartyDiskDriver();
+
 var manager = new SecureVirtualDiskManager(
     new EncryptionService(),
     new ContainerFileService(),
-    new MockThirdPartyDiskDriver()
+    driver
 );
 
 if (!File.Exists(cfg.ContainerPath))
@@ -23,11 +25,16 @@ if (!File.Exists(cfg.ContainerPath))
 
 Console.Write("请输入密码挂载硬盘: ");
 var password = ReadPassword();
-var mounted = await manager.MountWithPasswordAsync(cfg, password);
+var result = await manager.MountWithPasswordAsync(cfg, password);
 
-if (!mounted)
+if (!result.Success)
 {
-    Console.WriteLine("密码错误，拒绝挂载。");
+    Console.WriteLine(result.Error ?? "挂载失败。");
+    if (result.PasswordValid)
+    {
+        Console.WriteLine("提示: 请确认已安装 ImDisk、使用管理员权限运行，并且盘符未被占用。\n");
+    }
+
     return;
 }
 
