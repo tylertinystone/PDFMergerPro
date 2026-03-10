@@ -321,7 +321,6 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         fileSystemName = "Dokan";
         maximumComponentLength = 256;
         features = FileSystemFeatures.CasePreservedNames |
-                   FileSystemFeatures.CaseSensitiveSearch |
                    FileSystemFeatures.UnicodeOnDisk |
                    FileSystemFeatures.PersistentAcls;
         if (_readOnly) features |= FileSystemFeatures.ReadOnlyVolume;
@@ -349,6 +348,6 @@ public sealed class DokanPassthroughOperations : IDokanOperations
     public NtStatus FindStreams(string fileName, out IList<FileInformation> streams, IDokanFileInfo info)
     {
         streams = Array.Empty<FileInformation>();
-        return NtStatus.NotImplemented;
+        return NtStatus.Success;
     }
 }
