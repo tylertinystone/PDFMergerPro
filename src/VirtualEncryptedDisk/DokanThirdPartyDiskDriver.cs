@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
@@ -92,7 +93,7 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
         catch (TargetInvocationException ex) when (ex.InnerException is DllNotFoundException dllEx)
         {
             throw new InvalidOperationException(
-                $"Dokan Runtime 缺失：{dllEx.Message}。请安装 Dokan Runtime（包含 dokan2.dll），或改用 ImDisk 驱动。", ex);
+                $"Dokan Runtime 缺失：{dllEx.Message}。请安装 Dokan Runtime（包含 dokan2.dll）。", ex);
         }
     }
 
@@ -101,6 +102,7 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
     {
         var buildMethods = builderType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .Where(m => m.Name == "Build")
+            .OrderBy(m => m.GetParameters().Length)
             .ToList();
 
         if (buildMethods.Count == 0)
@@ -108,38 +110,21 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
             throw new InvalidOperationException("DokanInstanceBuilder.Build 不可用。");
         }
 
-        // 优先无参 Build()
-        var method = buildMethods.FirstOrDefault(m => m.GetParameters().Length == 0)
-            // 其次允许所有参数均可自动填充（可选参数 / CancellationToken）
-            ?? buildMethods.FirstOrDefault(m => CanSatisfyParameters(m.GetParameters()));
-
-        if (method is null)
+        Exception? lastError = null;
+        foreach (var method in buildMethods)
         {
-            throw new InvalidOperationException("未找到可调用的 DokanInstanceBuilder.Build 重载。");
+            try
+            {
+                var args = BuildMethodArgs(method.GetParameters());
+                return method.Invoke(builder, args);
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+            }
         }
 
-        var args = BuildMethodArgs(method.GetParameters());
-        return method.Invoke(builder, args);
-    }
-
-    private static bool CanSatisfyParameters(ParameterInfo[] parameters)
-    {
-        foreach (var p in parameters)
-        {
-            if (p.HasDefaultValue)
-            {
-                continue;
-            }
-
-            if (p.ParameterType == typeof(CancellationToken))
-            {
-                continue;
-            }
-
-            return false;
-        }
-
-        return true;
+        throw new InvalidOperationException("未找到可调用的 DokanInstanceBuilder.Build 重载。", lastError);
     }
 
     private static object?[] BuildMethodArgs(ParameterInfo[] parameters)
@@ -148,21 +133,61 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
         for (var i = 0; i < parameters.Length; i++)
         {
             var p = parameters[i];
-            if (p.HasDefaultValue)
-            {
-                args[i] = p.DefaultValue;
-            }
-            else if (p.ParameterType == typeof(CancellationToken))
-            {
-                args[i] = CancellationToken.None;
-            }
-            else
-            {
-                throw new InvalidOperationException($"Build 参数无法自动填充: {p.ParameterType.FullName}");
-            }
+            args[i] = CreateParameterValue(p);
         }
 
         return args;
+    }
+
+    private static object? CreateParameterValue(ParameterInfo p)
+    {
+        if (p.HasDefaultValue)
+        {
+            return p.DefaultValue;
+        }
+
+        var t = p.ParameterType;
+        if (t == typeof(CancellationToken))
+        {
+            return CancellationToken.None;
+        }
+
+        if (t.IsByRef)
+        {
+            t = t.GetElementType()!;
+        }
+
+        if (t.IsValueType)
+        {
+            return Activator.CreateInstance(t);
+        }
+
+        if (typeof(Delegate).IsAssignableFrom(t))
+        {
+            return CreateNoOpDelegate(t);
+        }
+
+        return null;
+    }
+
+    private static object? CreateNoOpDelegate(Type delegateType)
+    {
+        var invoke = delegateType.GetMethod("Invoke");
+        if (invoke is null)
+        {
+            return null;
+        }
+
+        var parameters = invoke.GetParameters()
+            .Select(p => Expression.Parameter(p.ParameterType, p.Name))
+            .ToArray();
+
+        Expression body = invoke.ReturnType == typeof(void)
+            ? Expression.Empty()
+            : Expression.Default(invoke.ReturnType);
+
+        var lambda = Expression.Lambda(delegateType, body, parameters);
+        return lambda.Compile();
     }
 
     private static object CreateBuilder(Type builderType, Assembly dokanAsm, DokanPassthroughOperations fs)

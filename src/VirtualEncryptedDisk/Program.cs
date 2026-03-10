@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Runtime.InteropServices;
 using VirtualEncryptedDisk;
 
 var cfg = new VirtualDiskConfig(
@@ -9,7 +7,7 @@ var cfg = new VirtualDiskConfig(
     ReadOnly: false
 );
 
-var driver = SelectBestDriver();
+IThirdPartyDiskDriver driver = new DokanThirdPartyDiskDriver();
 Console.WriteLine($"当前驱动: {driver.GetType().Name}");
 
 var manager = new SecureVirtualDiskManager(
@@ -39,66 +37,6 @@ if (!result.Success)
 Console.WriteLine($"已成功挂载到 {cfg.MountPoint}，按任意键卸载...");
 Console.ReadKey(intercept: true);
 await manager.UnmountAsync(cfg.MountPoint);
-
-static IThirdPartyDiskDriver SelectBestDriver()
-{
-    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && IsDokanRuntimeAvailable())
-    {
-        return new DokanThirdPartyDiskDriver();
-    }
-
-    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && IsImDiskAvailable())
-    {
-        return new ImDiskThirdPartyDiskDriver();
-    }
-
-    Console.WriteLine("警告: 未检测到可用真实驱动（Dokan/ImDisk），将使用 Mock 驱动（仅演示，不会产生真实盘符）。");
-    return new MockThirdPartyDiskDriver();
-}
-
-static bool IsDokanRuntimeAvailable()
-{
-    try
-    {
-        if (!NativeLibrary.TryLoad("dokan2.dll", out var handle))
-        {
-            return false;
-        }
-
-        NativeLibrary.Free(handle);
-        return true;
-    }
-    catch
-    {
-        return false;
-    }
-}
-
-static bool IsImDiskAvailable()
-{
-    try
-    {
-        using var process = Process.Start(new ProcessStartInfo("imdisk", "-h")
-        {
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        });
-
-        if (process is null)
-        {
-            return false;
-        }
-
-        process.WaitForExit(2000);
-        return process.ExitCode == 0;
-    }
-    catch
-    {
-        return false;
-    }
-}
 
 static string ReadPassword()
 {
