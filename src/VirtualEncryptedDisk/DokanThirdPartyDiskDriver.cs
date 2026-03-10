@@ -86,10 +86,7 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
             InvokeIfExists(builder, "ConfigureMountPoint", mountPoint);
             InvokeIfExists(builder, "ConfigureOptions", options);
 
-            var build = builderType.GetMethod("Build", BindingFlags.Public | BindingFlags.Instance)
-                ?? throw new InvalidOperationException("DokanInstanceBuilder.Build 不可用。");
-
-            var instance = build.Invoke(builder, null) as IDisposable;
+            var instance = InvokeBuild(builderType, builder) as IDisposable;
             return instance ?? throw new InvalidOperationException("Dokan Build 返回值不可释放或为空。");
         }
         catch (TargetInvocationException ex) when (ex.InnerException is DllNotFoundException dllEx)
@@ -97,6 +94,75 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
             throw new InvalidOperationException(
                 $"Dokan Runtime 缺失：{dllEx.Message}。请安装 Dokan Runtime（包含 dokan2.dll），或改用 ImDisk 驱动。", ex);
         }
+    }
+
+
+    private static object? InvokeBuild(Type builderType, object builder)
+    {
+        var buildMethods = builderType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(m => m.Name == "Build")
+            .ToList();
+
+        if (buildMethods.Count == 0)
+        {
+            throw new InvalidOperationException("DokanInstanceBuilder.Build 不可用。");
+        }
+
+        // 优先无参 Build()
+        var method = buildMethods.FirstOrDefault(m => m.GetParameters().Length == 0)
+            // 其次允许所有参数均可自动填充（可选参数 / CancellationToken）
+            ?? buildMethods.FirstOrDefault(m => CanSatisfyParameters(m.GetParameters()));
+
+        if (method is null)
+        {
+            throw new InvalidOperationException("未找到可调用的 DokanInstanceBuilder.Build 重载。");
+        }
+
+        var args = BuildMethodArgs(method.GetParameters());
+        return method.Invoke(builder, args);
+    }
+
+    private static bool CanSatisfyParameters(ParameterInfo[] parameters)
+    {
+        foreach (var p in parameters)
+        {
+            if (p.HasDefaultValue)
+            {
+                continue;
+            }
+
+            if (p.ParameterType == typeof(CancellationToken))
+            {
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private static object?[] BuildMethodArgs(ParameterInfo[] parameters)
+    {
+        var args = new object?[parameters.Length];
+        for (var i = 0; i < parameters.Length; i++)
+        {
+            var p = parameters[i];
+            if (p.HasDefaultValue)
+            {
+                args[i] = p.DefaultValue;
+            }
+            else if (p.ParameterType == typeof(CancellationToken))
+            {
+                args[i] = CancellationToken.None;
+            }
+            else
+            {
+                throw new InvalidOperationException($"Build 参数无法自动填充: {p.ParameterType.FullName}");
+            }
+        }
+
+        return args;
     }
 
     private static object CreateBuilder(Type builderType, Assembly dokanAsm, DokanPassthroughOperations fs)
