@@ -200,9 +200,21 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
 
     private static void InvokeIfExists(object target, string methodName, object argument)
     {
-        var method = target.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .FirstOrDefault(m => m.Name == methodName && m.GetParameters().Length == 1);
-        method?.Invoke(target, new[] { argument });
+        var argType = argument.GetType();
+        var candidates = target.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(m => m.Name == methodName && m.GetParameters().Length == 1)
+            .ToList();
+
+        // 精确类型优先，避免选中 ConfigureOptions(delegate) 等重载
+        var method = candidates.FirstOrDefault(m => m.GetParameters()[0].ParameterType == argType)
+            ?? candidates.FirstOrDefault(m => m.GetParameters()[0].ParameterType.IsAssignableFrom(argType));
+
+        if (method is null)
+        {
+            return;
+        }
+
+        method.Invoke(target, new[] { argument });
     }
 
     private static string NormalizeMountPoint(string mountPoint)
