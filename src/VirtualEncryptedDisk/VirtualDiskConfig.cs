@@ -7,5 +7,6 @@ public sealed record VirtualDiskConfig(
     bool ReadOnly = false,
     string? RuntimeRootPath = null,
     bool AutosaveEnabled = true,
-    int AutosaveIntervalSeconds = 5
+    int AutosaveIntervalSeconds = 5,
+    bool PersistOnlyWhenChanged = true
 );

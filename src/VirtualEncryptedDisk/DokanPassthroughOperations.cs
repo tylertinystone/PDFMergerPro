@@ -518,8 +518,8 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         out string fileSystemName, out uint maximumComponentLength, IDokanFileInfo info)
     {
         volumeLabel = "VED";
-        fileSystemName = "Dokan";
-        maximumComponentLength = 256;
+        fileSystemName = "NTFS";
+        maximumComponentLength = 255;
         features = FileSystemFeatures.CasePreservedNames |
                    FileSystemFeatures.UnicodeOnDisk |
                    FileSystemFeatures.PersistentAcls;

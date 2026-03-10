@@ -63,5 +63,8 @@
 
 ## 调试建议（安装器兼容性）
 
+- 盘符卷信息对外标识为 `NTFS`（用于提高资源管理器右键“新建”等壳层兼容性）。
 - 可通过 `VirtualDiskConfig.AutosaveEnabled=false` 临时关闭自动快照，排查安装程序执行期间的并发快照干扰。
 - 可通过 `AutosaveIntervalSeconds` 调整快照周期。
+
+- 可通过 `PersistOnlyWhenChanged=true`（默认）避免“无改动卸载时”重复加密写回，减少磁盘写放大。

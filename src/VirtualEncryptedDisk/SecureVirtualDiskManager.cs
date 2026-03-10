@@ -12,6 +12,7 @@ public sealed class SecureVirtualDiskManager
     private string? _mountedPassword;
     private CancellationTokenSource? _autosaveCts;
     private Task? _autosaveTask;
+    private string? _lastPersistedSnapshotHash;
 
     public SecureVirtualDiskManager(
         EncryptionService encryption,
@@ -41,6 +42,7 @@ public sealed class SecureVirtualDiskManager
             var plain = _encryption.Decrypt(payload, password);
             await _driver.MountAsync(config, plain, ct);
 
+            _lastPersistedSnapshotHash = ComputeHashHex(plain);
             _mountedConfig = config;
             _mountedPassword = password;
             StartAutosave(config);
@@ -70,6 +72,7 @@ public sealed class SecureVirtualDiskManager
         DiagnosticLogger.Info($"Unmount completed for MountPoint='{mountPoint}'.");
         _mountedConfig = null;
         _mountedPassword = null;
+        _lastPersistedSnapshotHash = null;
     }
 
     private void StartAutosave(VirtualDiskConfig config)
@@ -148,6 +151,18 @@ public sealed class SecureVirtualDiskManager
             return;
         }
 
+        if (_mountedConfig.PersistOnlyWhenChanged)
+        {
+            var currentHash = ComputeHashHex(snapshot);
+            if (string.Equals(currentHash, _lastPersistedSnapshotHash, StringComparison.Ordinal))
+            {
+                DiagnosticLogger.Info("Autosave skipped because snapshot has no changes.");
+                return;
+            }
+
+            _lastPersistedSnapshotHash = currentHash;
+        }
+
         var payload = _encryption.Encrypt(snapshot, _mountedPassword);
         _container.Write(_mountedConfig.ContainerPath, payload);
         DiagnosticLogger.Info($"Autosave snapshot persisted to '{_mountedConfig.ContainerPath}'.");
@@ -167,8 +182,26 @@ public sealed class SecureVirtualDiskManager
             return;
         }
 
+        if (_mountedConfig.PersistOnlyWhenChanged)
+        {
+            var currentHash = ComputeHashHex(updated);
+            if (string.Equals(currentHash, _lastPersistedSnapshotHash, StringComparison.Ordinal))
+            {
+                DiagnosticLogger.Info("Final persist skipped because snapshot has no changes.");
+                return;
+            }
+
+            _lastPersistedSnapshotHash = currentHash;
+        }
+
         var payload = _encryption.Encrypt(updated, _mountedPassword);
         _container.Write(_mountedConfig.ContainerPath, payload);
         DiagnosticLogger.Info($"Final persisted snapshot written to '{_mountedConfig.ContainerPath}'.");
+    }
+
+    private static string ComputeHashHex(byte[] data)
+    {
+        var hash = SHA256.HashData(data);
+        return Convert.ToHexString(hash);
     }
 }

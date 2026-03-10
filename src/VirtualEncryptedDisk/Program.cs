@@ -7,7 +7,8 @@ var cfg = new VirtualDiskConfig(
     SizeMb: 32,
     ReadOnly: false,
     AutosaveEnabled: false, // 先做安装兼容性排查：禁用自动快照
-    AutosaveIntervalSeconds: 5
+    AutosaveIntervalSeconds: 5,
+    PersistOnlyWhenChanged: true
 );
 
 var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
@@ -15,6 +16,7 @@ Console.WriteLine($"VirtualEncryptedDisk 版本: {version}");
 DiagnosticLogger.Info($"Application startup. Version={version}, PID={Environment.ProcessId}.");
 Console.WriteLine($"运行日志: {DiagnosticLogger.LogFilePath}");
 Console.WriteLine($"自动快照: {(cfg.AutosaveEnabled ? $"开启（{cfg.AutosaveIntervalSeconds}s）" : "关闭")}");
+Console.WriteLine($"仅变更写回: {(cfg.PersistOnlyWhenChanged ? "开启" : "关闭")}");
 
 IThirdPartyDiskDriver driver = new DokanThirdPartyDiskDriver();
 Console.WriteLine($"当前驱动: {driver.GetType().Name}");
