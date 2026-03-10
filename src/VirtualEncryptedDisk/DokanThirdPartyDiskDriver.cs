@@ -100,8 +100,8 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
 
     private static object? InvokeBuild(Type builderType, object builder)
     {
-        var buildMethods = builderType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .Where(m => m.Name == "Build")
+        var buildMethods = builderType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .Where(m => m.Name.Contains("Build", StringComparison.OrdinalIgnoreCase))
             .OrderBy(m => m.GetParameters().Length)
             .ToList();
 
@@ -110,21 +110,26 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
             throw new InvalidOperationException("DokanInstanceBuilder.Build 不可用。");
         }
 
-        Exception? lastError = null;
+        var errors = new List<string>();
         foreach (var method in buildMethods)
         {
             try
             {
                 var args = BuildMethodArgs(method.GetParameters());
-                return method.Invoke(builder, args);
+                var result = method.Invoke(builder, args);
+                if (result is IDisposable)
+                {
+                    return result;
+                }
             }
             catch (Exception ex)
             {
-                lastError = ex;
+                errors.Add($"{method.Name}({string.Join(", ", method.GetParameters().Select(p => p.ParameterType.Name))}): {ex.GetBaseException().Message}");
             }
         }
 
-        throw new InvalidOperationException("未找到可调用的 DokanInstanceBuilder.Build 重载。", lastError);
+        throw new InvalidOperationException(
+            "未找到可调用的 DokanInstanceBuilder.Build 重载。尝试结果: " + string.Join(" | ", errors));
     }
 
     private static object?[] BuildMethodArgs(ParameterInfo[] parameters)
@@ -132,8 +137,7 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
         var args = new object?[parameters.Length];
         for (var i = 0; i < parameters.Length; i++)
         {
-            var p = parameters[i];
-            args[i] = CreateParameterValue(p);
+            args[i] = CreateParameterValue(parameters[i]);
         }
 
         return args;
@@ -143,7 +147,7 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
     {
         if (p.HasDefaultValue)
         {
-            return p.DefaultValue;
+            return Type.Missing;
         }
 
         var t = p.ParameterType;
@@ -157,17 +161,29 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
             t = t.GetElementType()!;
         }
 
-        if (t.IsValueType)
-        {
-            return Activator.CreateInstance(t);
-        }
-
         if (typeof(Delegate).IsAssignableFrom(t))
         {
             return CreateNoOpDelegate(t);
         }
 
-        return null;
+        if (t == typeof(string))
+        {
+            return string.Empty;
+        }
+
+        if (t.IsValueType)
+        {
+            return Activator.CreateInstance(t);
+        }
+
+        try
+        {
+            return Activator.CreateInstance(t);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static object? CreateNoOpDelegate(Type delegateType)
@@ -178,16 +194,23 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
             return null;
         }
 
-        var parameters = invoke.GetParameters()
-            .Select(p => Expression.Parameter(p.ParameterType, p.Name))
-            .ToArray();
+        try
+        {
+            var parameters = invoke.GetParameters()
+                .Select(p => Expression.Parameter(p.ParameterType, p.Name))
+                .ToArray();
 
-        Expression body = invoke.ReturnType == typeof(void)
-            ? Expression.Empty()
-            : Expression.Default(invoke.ReturnType);
+            Expression body = invoke.ReturnType == typeof(void)
+                ? Expression.Empty()
+                : Expression.Default(invoke.ReturnType);
 
-        var lambda = Expression.Lambda(delegateType, body, parameters);
-        return lambda.Compile();
+            var lambda = Expression.Lambda(delegateType, body, parameters);
+            return lambda.Compile();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static object CreateBuilder(Type builderType, Assembly dokanAsm, DokanPassthroughOperations fs)
