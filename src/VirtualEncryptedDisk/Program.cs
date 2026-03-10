@@ -30,11 +30,6 @@ var result = await manager.MountWithPasswordAsync(cfg, password);
 if (!result.Success)
 {
     Console.WriteLine(result.Error ?? "挂载失败。");
-    if (result.PasswordValid)
-    {
-        Console.WriteLine("提示: 请确认已安装 ImDisk、使用管理员权限运行，并且盘符未被占用。\n");
-    }
-
     return;
 }
 

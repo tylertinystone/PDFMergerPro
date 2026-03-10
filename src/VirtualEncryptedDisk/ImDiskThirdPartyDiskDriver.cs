@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
@@ -19,6 +20,9 @@ public sealed class ImDiskThirdPartyDiskDriver : IThirdPartyDiskDriver
         }
 
         var mountPoint = NormalizeMountPoint(config.MountPoint);
+        EnsureDriveLetterAvailable(mountPoint);
+        await EnsureImDiskAvailableAsync(ct);
+
         var tempImage = Path.Combine(Path.GetTempPath(), $"ved-{Guid.NewGuid():N}.img");
         await File.WriteAllBytesAsync(tempImage, decryptedDiskBytes, ct);
 
@@ -26,11 +30,16 @@ public sealed class ImDiskThirdPartyDiskDriver : IThirdPartyDiskDriver
         var mode = config.ReadOnly ? "ro" : "rw";
         var args = $"-a -t file -f \"{tempImage}\" -m {mountPoint} -o {mode}";
 
-        var code = await RunProcessAsync("imdisk", args, ct);
-        if (code != 0)
+        var result = await RunProcessAsync("imdisk", args, ct);
+        if (result.ExitCode != 0)
         {
             File.Delete(tempImage);
-            throw new InvalidOperationException($"ImDisk 挂载失败，退出码: {code}。请确认已安装 ImDisk 且以管理员身份运行。\n命令: imdisk {args}");
+            throw new InvalidOperationException(
+                "ImDisk 挂载失败。\n" +
+                $"退出码: {result.ExitCode}\n" +
+                $"命令: imdisk {args}\n" +
+                $"stdout: {NormalizeOutput(result.StdOut)}\n" +
+                $"stderr: {NormalizeOutput(result.StdErr)}");
         }
 
         _mountedImagePath = tempImage;
@@ -39,7 +48,7 @@ public sealed class ImDiskThirdPartyDiskDriver : IThirdPartyDiskDriver
     public async Task UnmountAsync(string mountPoint, CancellationToken ct = default)
     {
         var normalized = NormalizeMountPoint(mountPoint);
-        var code = await RunProcessAsync("imdisk", $"-D -m {normalized}", ct);
+        var result = await RunProcessAsync("imdisk", $"-D -m {normalized}", ct);
 
         if (_mountedImagePath is not null && File.Exists(_mountedImagePath))
         {
@@ -47,9 +56,13 @@ public sealed class ImDiskThirdPartyDiskDriver : IThirdPartyDiskDriver
             _mountedImagePath = null;
         }
 
-        if (code != 0)
+        if (result.ExitCode != 0)
         {
-            throw new InvalidOperationException($"ImDisk 卸载失败，退出码: {code}。");
+            throw new InvalidOperationException(
+                "ImDisk 卸载失败。\n" +
+                $"退出码: {result.ExitCode}\n" +
+                $"stdout: {NormalizeOutput(result.StdOut)}\n" +
+                $"stderr: {NormalizeOutput(result.StdErr)}");
         }
     }
 
@@ -69,7 +82,38 @@ public sealed class ImDiskThirdPartyDiskDriver : IThirdPartyDiskDriver
         return $"{letter}:";
     }
 
-    private static async Task<int> RunProcessAsync(string fileName, string arguments, CancellationToken ct)
+    private static void EnsureDriveLetterAvailable(string mountPoint)
+    {
+        if (Directory.Exists($"{mountPoint}\\"))
+        {
+            throw new InvalidOperationException($"盘符 {mountPoint} 已被占用，请更换为未使用盘符。");
+        }
+    }
+
+    private static async Task EnsureImDiskAvailableAsync(CancellationToken ct)
+    {
+        var probe = await RunProcessAsync("imdisk", "-h", ct);
+        if (probe.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                "检测到 ImDisk 不可用或无执行权限。\n" +
+                $"退出码: {probe.ExitCode}\n" +
+                $"stdout: {NormalizeOutput(probe.StdOut)}\n" +
+                $"stderr: {NormalizeOutput(probe.StdErr)}");
+        }
+    }
+
+    private static string NormalizeOutput(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "<empty>";
+        }
+
+        return text.Trim();
+    }
+
+    private static async Task<ProcessResult> RunProcessAsync(string fileName, string arguments, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(fileName, arguments)
         {
@@ -79,8 +123,22 @@ public sealed class ImDiskThirdPartyDiskDriver : IThirdPartyDiskDriver
             CreateNoWindow = true
         };
 
-        using var process = Process.Start(psi) ?? throw new InvalidOperationException($"无法启动进程: {fileName}");
-        await process.WaitForExitAsync(ct);
-        return process.ExitCode;
+        try
+        {
+            using var process = Process.Start(psi) ?? throw new InvalidOperationException($"无法启动进程: {fileName}");
+            var stdOutTask = process.StandardOutput.ReadToEndAsync(ct);
+            var stdErrTask = process.StandardError.ReadToEndAsync(ct);
+
+            await process.WaitForExitAsync(ct);
+            var stdOut = await stdOutTask;
+            var stdErr = await stdErrTask;
+            return new ProcessResult(process.ExitCode, stdOut, stdErr);
+        }
+        catch (Win32Exception ex)
+        {
+            throw new InvalidOperationException($"无法启动 {fileName}，请确认已安装并在 PATH 中。系统消息: {ex.Message}", ex);
+        }
     }
+
+    private sealed record ProcessResult(int ExitCode, string StdOut, string StdErr);
 }

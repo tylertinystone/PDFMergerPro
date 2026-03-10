@@ -20,6 +20,13 @@
 之前如果使用的是 `MockThirdPartyDiskDriver`，它只打印日志，不会真的创建盘符。
 现在默认改为 `ImDiskThirdPartyDiskDriver`，会调用 ImDisk 真正挂载。
 
+此外，新版本会输出更具体的失败细节（退出码、stdout/stderr）：
+
+- `imdisk` 不在 PATH / 未安装。
+- 盘符已被占用。
+- 权限不足（未管理员运行）。
+- ImDisk 命令执行失败。
+
 ## 使用前准备（Windows）
 
 1. 安装 ImDisk Toolkit（确保 `imdisk.exe` 在 PATH 中）。
