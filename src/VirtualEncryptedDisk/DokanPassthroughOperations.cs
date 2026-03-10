@@ -85,13 +85,16 @@ public sealed class DokanPassthroughOperations : IDokanOperations
                 }
                 if (_readOnly) return NtStatus.AccessDenied;
                 EnsureParentDirectory(path);
-                using (File.Create(path)) { }
                 break;
 
             case FileMode.Create:
                 if (_readOnly) return NtStatus.AccessDenied;
                 EnsureParentDirectory(path);
-                using (File.Create(path)) { }
+                // 仅在不存在时创建占位文件，避免复制过程中被重复截断。
+                if (!exists)
+                {
+                    using (File.Create(path)) { }
+                }
                 break;
 
             case FileMode.OpenOrCreate:
@@ -109,10 +112,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
                     return NtStatus.ObjectNameNotFound;
                 }
                 if (_readOnly) return NtStatus.AccessDenied;
-                using (var fs = new FileStream(path, FileMode.Open, System.IO.FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
-                {
-                    fs.SetLength(0);
-                }
+                // 交由后续写入/SetEndOfFile 流程处理长度变更，避免与复制流程冲突。
                 break;
         }
 
