@@ -9,12 +9,31 @@ public sealed class ContainerFileService
 
     public void Write(string path, EncryptedPayload payload)
     {
-        using var fs = File.Create(path);
-        fs.Write(Magic);
-        WriteChunk(fs, payload.Salt);
-        WriteChunk(fs, payload.Nonce);
-        WriteChunk(fs, payload.Tag);
-        WriteChunk(fs, payload.CipherText);
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var tempPath = path + ".tmp";
+        using (var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            fs.Write(Magic);
+            WriteChunk(fs, payload.Salt);
+            WriteChunk(fs, payload.Nonce);
+            WriteChunk(fs, payload.Tag);
+            WriteChunk(fs, payload.CipherText);
+            fs.Flush(flushToDisk: true);
+        }
+
+        if (File.Exists(path))
+        {
+            File.Replace(tempPath, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
+        }
+        else
+        {
+            File.Move(tempPath, path);
+        }
     }
 
     public EncryptedPayload Read(string path)

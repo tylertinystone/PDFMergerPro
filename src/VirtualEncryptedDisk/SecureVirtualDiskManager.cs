@@ -10,6 +10,8 @@ public sealed class SecureVirtualDiskManager
 
     private VirtualDiskConfig? _mountedConfig;
     private string? _mountedPassword;
+    private CancellationTokenSource? _autosaveCts;
+    private Task? _autosaveTask;
 
     public SecureVirtualDiskManager(
         EncryptionService encryption,
@@ -23,7 +25,6 @@ public sealed class SecureVirtualDiskManager
 
     public async Task CreateEncryptedDiskAsync(VirtualDiskConfig config, string password, CancellationToken ct = default)
     {
-        // 初始容器使用空目录归档，便于后续文件系统内容持久化。
         var plainDisk = VirtualDiskArchiveService.CreateEmptyArchive();
 
         var encryptedPayload = _encryption.Encrypt(plainDisk, password);
@@ -41,6 +42,7 @@ public sealed class SecureVirtualDiskManager
 
             _mountedConfig = config;
             _mountedPassword = password;
+            StartAutosave();
             return MountResult.Mounted();
         }
         catch (CryptographicException)
@@ -55,19 +57,98 @@ public sealed class SecureVirtualDiskManager
 
     public async Task UnmountAsync(string mountPoint, CancellationToken ct = default)
     {
+        await StopAutosaveAsync();
         await _driver.UnmountAsync(mountPoint, ct);
-
-        if (_mountedConfig is not null && _mountedPassword is not null && _driver is IPersistableDiskDriver persistable)
-        {
-            var updated = persistable.TakeUpdatedDiskBytes();
-            if (updated is not null)
-            {
-                var payload = _encryption.Encrypt(updated, _mountedPassword);
-                _container.Write(_mountedConfig.ContainerPath, payload);
-            }
-        }
+        PersistFromDriver();
 
         _mountedConfig = null;
         _mountedPassword = null;
+    }
+
+    private void StartAutosave()
+    {
+        if (_driver is not IPersistableDiskDriver)
+        {
+            return;
+        }
+
+        _autosaveCts = new CancellationTokenSource();
+        _autosaveTask = Task.Run(async () =>
+        {
+            while (!_autosaveCts.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), _autosaveCts.Token);
+                    PersistSnapshotFromDriver();
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch
+                {
+                    // 自动快照失败不应中断挂载流程。
+                }
+            }
+        });
+    }
+
+    private async Task StopAutosaveAsync()
+    {
+        if (_autosaveCts is null)
+        {
+            return;
+        }
+
+        _autosaveCts.Cancel();
+        if (_autosaveTask is not null)
+        {
+            try
+            {
+                await _autosaveTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        _autosaveTask = null;
+        _autosaveCts.Dispose();
+        _autosaveCts = null;
+    }
+
+    private void PersistSnapshotFromDriver()
+    {
+        if (_mountedConfig is null || _mountedPassword is null || _driver is not IPersistableDiskDriver persistable)
+        {
+            return;
+        }
+
+        var snapshot = persistable.CaptureSnapshotDiskBytes();
+        if (snapshot is null)
+        {
+            return;
+        }
+
+        var payload = _encryption.Encrypt(snapshot, _mountedPassword);
+        _container.Write(_mountedConfig.ContainerPath, payload);
+    }
+
+    private void PersistFromDriver()
+    {
+        if (_mountedConfig is null || _mountedPassword is null || _driver is not IPersistableDiskDriver persistable)
+        {
+            return;
+        }
+
+        var updated = persistable.TakeUpdatedDiskBytes();
+        if (updated is null)
+        {
+            return;
+        }
+
+        var payload = _encryption.Encrypt(updated, _mountedPassword);
+        _container.Write(_mountedConfig.ContainerPath, payload);
     }
 }

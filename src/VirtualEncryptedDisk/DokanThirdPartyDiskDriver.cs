@@ -15,6 +15,7 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersista
     private FileStream? _logStream;
     private TextWriterTraceListener? _traceListener;
     private byte[]? _lastArchiveBytes;
+    private readonly object _sync = new();
 
     public async Task MountAsync(VirtualDiskConfig config, byte[] decryptedDiskBytes, CancellationToken ct = default)
     {
@@ -75,9 +76,12 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersista
         _instance?.Dispose();
         _instance = null;
 
-        if (_mountedRoot is not null && Directory.Exists(_mountedRoot))
+        lock (_sync)
         {
-            _lastArchiveBytes = VirtualDiskArchiveService.CreateFromDirectory(_mountedRoot);
+            if (_mountedRoot is not null && Directory.Exists(_mountedRoot))
+            {
+                _lastArchiveBytes = VirtualDiskArchiveService.CreateFromDirectory(_mountedRoot);
+            }
         }
 
         CleanupLogger();
@@ -93,9 +97,25 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersista
 
     public byte[]? TakeUpdatedDiskBytes()
     {
-        var bytes = _lastArchiveBytes;
-        _lastArchiveBytes = null;
-        return bytes;
+        lock (_sync)
+        {
+            var bytes = _lastArchiveBytes;
+            _lastArchiveBytes = null;
+            return bytes;
+        }
+    }
+
+    public byte[]? CaptureSnapshotDiskBytes()
+    {
+        lock (_sync)
+        {
+            if (_mountedRoot is null || !Directory.Exists(_mountedRoot))
+            {
+                return null;
+            }
+
+            return VirtualDiskArchiveService.CreateFromDirectory(_mountedRoot);
+        }
     }
 
     private ILogger CreateLogger()
