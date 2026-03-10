@@ -68,12 +68,64 @@ public sealed class DokanPassthroughOperations : IDokanOperations
             return NtStatus.Success;
         }
 
-        if (mode == FileMode.Open && !File.Exists(path))
+        var exists = File.Exists(path);
+        switch (mode)
         {
-            return NtStatus.ObjectNameNotFound;
+            case FileMode.Open:
+                if (!exists)
+                {
+                    return NtStatus.ObjectNameNotFound;
+                }
+                break;
+
+            case FileMode.CreateNew:
+                if (exists)
+                {
+                    return NtStatus.ObjectNameCollision;
+                }
+                if (_readOnly) return NtStatus.AccessDenied;
+                EnsureParentDirectory(path);
+                using (File.Create(path)) { }
+                break;
+
+            case FileMode.Create:
+                if (_readOnly) return NtStatus.AccessDenied;
+                EnsureParentDirectory(path);
+                using (File.Create(path)) { }
+                break;
+
+            case FileMode.OpenOrCreate:
+                if (!exists)
+                {
+                    if (_readOnly) return NtStatus.AccessDenied;
+                    EnsureParentDirectory(path);
+                    using (File.Create(path)) { }
+                }
+                break;
+
+            case FileMode.Truncate:
+                if (!exists)
+                {
+                    return NtStatus.ObjectNameNotFound;
+                }
+                if (_readOnly) return NtStatus.AccessDenied;
+                using (var fs = new FileStream(path, FileMode.Open, System.IO.FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
+                {
+                    fs.SetLength(0);
+                }
+                break;
         }
 
         return NtStatus.Success;
+    }
+
+    private static void EnsureParentDirectory(string path)
+    {
+        var parent = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(parent))
+        {
+            Directory.CreateDirectory(parent);
+        }
     }
 
     public void Cleanup(string fileName, IDokanFileInfo info) { }
