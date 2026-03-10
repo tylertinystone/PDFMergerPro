@@ -43,7 +43,7 @@ public sealed class SecureVirtualDiskManager
 
             _mountedConfig = config;
             _mountedPassword = password;
-            StartAutosave();
+            StartAutosave(config);
             DiagnosticLogger.Info($"Mount success. Container='{config.ContainerPath}', MountPoint='{config.MountPoint}'.");
             return MountResult.Mounted();
         }
@@ -72,13 +72,20 @@ public sealed class SecureVirtualDiskManager
         _mountedPassword = null;
     }
 
-    private void StartAutosave()
+    private void StartAutosave(VirtualDiskConfig config)
     {
         if (_driver is not IPersistableDiskDriver)
         {
             return;
         }
 
+        if (!config.AutosaveEnabled)
+        {
+            DiagnosticLogger.Info("Autosave is disabled by configuration.");
+            return;
+        }
+
+        var intervalSeconds = Math.Max(1, config.AutosaveIntervalSeconds);
         _autosaveCts = new CancellationTokenSource();
         _autosaveTask = Task.Run(async () =>
         {
@@ -86,7 +93,7 @@ public sealed class SecureVirtualDiskManager
             {
                 try
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(5), _autosaveCts.Token);
+                    await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), _autosaveCts.Token);
                     PersistSnapshotFromDriver();
                 }
                 catch (OperationCanceledException)
@@ -100,6 +107,8 @@ public sealed class SecureVirtualDiskManager
                 }
             }
         });
+
+        DiagnosticLogger.Info($"Autosave started. IntervalSeconds={intervalSeconds}.");
     }
 
     private async Task StopAutosaveAsync()

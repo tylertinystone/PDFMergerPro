@@ -5,5 +5,7 @@ public sealed record VirtualDiskConfig(
     string MountPoint,
     int SizeMb,
     bool ReadOnly = false,
-    string? RuntimeRootPath = null
+    string? RuntimeRootPath = null,
+    bool AutosaveEnabled = true,
+    int AutosaveIntervalSeconds = 5
 );
