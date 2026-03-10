@@ -1,6 +1,5 @@
 using DokanNet;
 using System.Security.AccessControl;
-using System.Text.RegularExpressions;
 using FileAccess = DokanNet.FileAccess;
 
 namespace VirtualEncryptedDisk;
@@ -209,26 +208,8 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
     public NtStatus FindFilesWithPattern(string fileName, string searchPattern, out IList<FileInformation> files, IDokanFileInfo info)
     {
-        var status = FindFiles(fileName, out var allFiles, info);
-        if (status != NtStatus.Success)
-        {
-            files = allFiles;
-            return status;
-        }
-
-        files = allFiles
-            .Where(f => IsWildcardMatch(f.FileName, searchPattern))
-            .ToList();
-        return NtStatus.Success;
-    }
-
-
-    private static bool IsWildcardMatch(string input, string pattern)
-    {
-        var regexPattern = "^" + Regex.Escape(pattern)
-            .Replace("\\*", ".*")
-            .Replace("\\?", ".") + "$";
-        return Regex.IsMatch(input, regexPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        // 为兼容复杂通配符语义（某些大程序运行期依赖），直接返回完整列表，交由调用方过滤。
+        return FindFiles(fileName, out files, info);
     }
 
     public NtStatus SetFileAttributes(string fileName, FileAttributes attributes, IDokanFileInfo info)
