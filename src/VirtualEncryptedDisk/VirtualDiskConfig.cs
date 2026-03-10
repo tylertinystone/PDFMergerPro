@@ -9,6 +9,7 @@ public sealed record VirtualDiskConfig(
     bool AutosaveEnabled = true,
     int AutosaveIntervalSeconds = 5,
     bool PersistOnlyWhenChanged = true,
-    bool UseChunkedContainerExperimental = false,
-    int ChunkSizeBytes = 1 * 1024 * 1024
+    bool UseChunkedContainerExperimental = true,
+    int ChunkSizeBytes = 1 * 1024 * 1024,
+    bool AllowLegacyVed1Read = true
 );

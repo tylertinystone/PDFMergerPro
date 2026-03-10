@@ -9,8 +9,9 @@ var cfg = new VirtualDiskConfig(
     AutosaveEnabled: false, // 先做安装兼容性排查：禁用自动快照
     AutosaveIntervalSeconds: 5,
     PersistOnlyWhenChanged: true,
-    UseChunkedContainerExperimental: false,
-    ChunkSizeBytes: 1 * 1024 * 1024
+    UseChunkedContainerExperimental: true,
+    ChunkSizeBytes: 1 * 1024 * 1024,
+    AllowLegacyVed1Read: true
 );
 
 var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
@@ -20,7 +21,8 @@ Console.WriteLine($"运行日志: {DiagnosticLogger.LogFilePath}");
 Console.WriteLine($"自动快照: {(cfg.AutosaveEnabled ? $"开启（{cfg.AutosaveIntervalSeconds}s）" : "关闭")}");
 Console.WriteLine($"仅变更写回: {(cfg.PersistOnlyWhenChanged ? "开启" : "关闭")}");
 Console.WriteLine($"分块容器实验模式: {(cfg.UseChunkedContainerExperimental ? $"开启（Chunk={cfg.ChunkSizeBytes}）" : "关闭")}");
-Console.WriteLine("容器模式: 若检测到现有 VEC2 文件将自动走分块链路。");
+Console.WriteLine("容器模式: 默认 VEC2；可读取 Legacy VED1，并在写回时迁移为 VEC2。");
+Console.WriteLine($"允许读取 Legacy VED1: {(cfg.AllowLegacyVed1Read ? "是" : "否")}");
 
 IThirdPartyDiskDriver driver = new DokanThirdPartyDiskDriver();
 Console.WriteLine($"当前驱动: {driver.GetType().Name}");

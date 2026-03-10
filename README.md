@@ -75,6 +75,8 @@
 - 阶段 1（本次）：补齐分块加解密原语（每块独立 GCM Tag），不改现有挂载路径。
 - 阶段 2（本次）：新增容器块索引（chunk metadata）与块读写 API（`ChunkedContainerStore`）。
 - 阶段 3（本次，过渡版）：管理器可切换/自动识别分块容器存储链路（`UseChunkedContainerExperimental` + VEC2 自动识别），为后续 Dokan 读写直连分块容器做准备。
-- 阶段 4：移除现有“整包解密->目录展开->整包回写”主路径。
+- 阶段 4（本次，起步版）：默认写回路径切到 VEC2 分块容器；Legacy VED1 仅保留读取兼容并在写回时迁移到 VEC2。
 
 - 阶段3补充：即使 `UseChunkedContainerExperimental=false`，也会自动识别已存在的 `VEC2` 容器并按分块链路读取。
+
+- 阶段4补充：可通过 `AllowLegacyVed1Read` 控制是否允许读取旧 `VED1` 容器（默认允许）。

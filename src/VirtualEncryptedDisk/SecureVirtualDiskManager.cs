@@ -27,20 +27,11 @@ public sealed class SecureVirtualDiskManager
     public async Task CreateEncryptedDiskAsync(VirtualDiskConfig config, string password, CancellationToken ct = default)
     {
         var plainDisk = VirtualDiskArchiveService.CreateEmptyArchive();
+        var store = ChunkedContainerStore.CreateNew(_encryption, config.ContainerPath, password, config.ChunkSizeBytes);
+        store.WriteAllBytes(plainDisk);
+        store.Flush();
 
-        if (ShouldUseChunkedContainer(config))
-        {
-            var store = ChunkedContainerStore.CreateNew(_encryption, config.ContainerPath, password, config.ChunkSizeBytes);
-            store.WriteAllBytes(plainDisk);
-            store.Flush();
-        }
-        else
-        {
-            var encryptedPayload = _encryption.Encrypt(plainDisk, password);
-            _container.Write(config.ContainerPath, encryptedPayload);
-        }
-
-        DiagnosticLogger.Info($"Encrypted disk created at '{config.ContainerPath}'.");
+        DiagnosticLogger.Info($"Encrypted disk created at '{config.ContainerPath}' in VEC2 mode.");
         await Task.CompletedTask;
     }
 
@@ -48,9 +39,9 @@ public sealed class SecureVirtualDiskManager
     {
         try
         {
-            var useChunked = ShouldUseChunkedContainer(config);
+            var mode = ResolveContainerMode(config);
             byte[] plain;
-            if (useChunked)
+            if (mode == ContainerMode.ChunkedVec2)
             {
                 var store = ChunkedContainerStore.Open(_encryption, config.ContainerPath, password);
                 plain = store.ReadAllBytes();
@@ -63,7 +54,7 @@ public sealed class SecureVirtualDiskManager
 
             await _driver.MountAsync(config, plain, ct);
 
-            DiagnosticLogger.Info($"Container mode resolved: {(useChunked ? "VEC2(chunked)" : "VED1(legacy)" )}. Path='{config.ContainerPath}'.");
+            DiagnosticLogger.Info($"Container mode resolved: {(mode == ContainerMode.ChunkedVec2 ? "VEC2(chunked)" : "VED1(legacy-read)")}. Path='{config.ContainerPath}'.");
             _lastPersistedSnapshotHash = ComputeHashHex(plain);
             _mountedConfig = config;
             _mountedPassword = password;
@@ -184,18 +175,7 @@ public sealed class SecureVirtualDiskManager
             _lastPersistedSnapshotHash = currentHash;
         }
 
-        if (ShouldUseChunkedContainer(_mountedConfig))
-        {
-            var store = ChunkedContainerStore.OpenOrCreate(_encryption, _mountedConfig.ContainerPath, _mountedPassword, _mountedConfig.ChunkSizeBytes);
-            store.WriteAllBytes(snapshot);
-            store.Flush();
-        }
-        else
-        {
-            var payload = _encryption.Encrypt(snapshot, _mountedPassword);
-            _container.Write(_mountedConfig.ContainerPath, payload);
-        }
-
+        PersistAsVec2(_mountedConfig, _mountedPassword, snapshot);
         DiagnosticLogger.Info($"Autosave snapshot persisted to '{_mountedConfig.ContainerPath}'.");
     }
 
@@ -225,48 +205,41 @@ public sealed class SecureVirtualDiskManager
             _lastPersistedSnapshotHash = currentHash;
         }
 
-        if (ShouldUseChunkedContainer(_mountedConfig))
-        {
-            var store = ChunkedContainerStore.OpenOrCreate(_encryption, _mountedConfig.ContainerPath, _mountedPassword, _mountedConfig.ChunkSizeBytes);
-            store.WriteAllBytes(updated);
-            store.Flush();
-        }
-        else
-        {
-            var payload = _encryption.Encrypt(updated, _mountedPassword);
-            _container.Write(_mountedConfig.ContainerPath, payload);
-        }
-
+        PersistAsVec2(_mountedConfig, _mountedPassword, updated);
         DiagnosticLogger.Info($"Final persisted snapshot written to '{_mountedConfig.ContainerPath}'.");
     }
 
-    private bool ShouldUseChunkedContainer(VirtualDiskConfig config)
+    private void PersistAsVec2(VirtualDiskConfig config, string password, byte[] plainBytes)
     {
-        if (config.UseChunkedContainerExperimental)
+        var store = ChunkedContainerStore.OpenOrCreate(_encryption, config.ContainerPath, password, config.ChunkSizeBytes);
+        store.WriteAllBytes(plainBytes);
+        store.Flush();
+    }
+
+    private ContainerMode ResolveContainerMode(VirtualDiskConfig config)
+    {
+        if (IsVec2Container(config.ContainerPath))
         {
-            return true;
+            return ContainerMode.ChunkedVec2;
         }
 
-        return IsVec2Container(config.ContainerPath);
+        if (config.AllowLegacyVed1Read)
+        {
+            return ContainerMode.LegacyVed1;
+        }
+
+        throw new InvalidOperationException("检测到非 VEC2 容器且已禁用 Legacy VED1 读取。请先迁移容器格式或开启 AllowLegacyVed1Read。");
     }
 
     private static bool IsVec2Container(string path)
     {
-        if (!File.Exists(path))
-        {
-            return false;
-        }
+        if (!File.Exists(path)) return false;
 
         try
         {
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             Span<byte> magic = stackalloc byte[4];
-            if (fs.Read(magic) != 4)
-            {
-                return false;
-            }
-
-            return magic.SequenceEqual("VEC2"u8);
+            return fs.Read(magic) == 4 && magic.SequenceEqual("VEC2"u8);
         }
         catch
         {
@@ -278,5 +251,11 @@ public sealed class SecureVirtualDiskManager
     {
         var hash = SHA256.HashData(data);
         return Convert.ToHexString(hash);
+    }
+
+    private enum ContainerMode
+    {
+        ChunkedVec2,
+        LegacyVed1
     }
 }
