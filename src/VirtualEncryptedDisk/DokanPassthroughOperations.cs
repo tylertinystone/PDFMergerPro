@@ -160,6 +160,22 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         return NtStatus.Success;
     }
 
+
+    public NtStatus FindFilesWithPattern(string fileName, string searchPattern, out IList<FileInformation> files, IDokanFileInfo info)
+    {
+        var status = FindFiles(fileName, out var allFiles, info);
+        if (status != NtStatus.Success)
+        {
+            files = allFiles;
+            return status;
+        }
+
+        files = allFiles
+            .Where(f => FileSystemName.MatchesSimpleExpression(searchPattern, f.FileName, ignoreCase: true))
+            .ToList();
+        return NtStatus.Success;
+    }
+
     public NtStatus SetFileAttributes(string fileName, FileAttributes attributes, IDokanFileInfo info)
     {
         if (_readOnly) return NtStatus.AccessDenied;
@@ -251,7 +267,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         return NtStatus.Success;
     }
 
-    public NtStatus Mounted(IDokanFileInfo info) => NtStatus.Success;
+    public NtStatus Mounted(string mountPoint, IDokanFileInfo info) => NtStatus.Success;
 
     public NtStatus Unmounted(IDokanFileInfo info) => NtStatus.Success;
 

@@ -13,7 +13,7 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
     private readonly Dokan _dokan = new(new ConsoleLogger("[Dokan] "));
     private string? _mountedRoot;
     private string? _mountPoint;
-    private IDokanInstance? _instance;
+    private IDisposable? _instance;
 
     public async Task MountAsync(VirtualDiskConfig config, byte[] decryptedDiskBytes, CancellationToken ct = default)
     {
