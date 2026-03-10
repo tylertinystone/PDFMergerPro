@@ -29,6 +29,7 @@ public sealed class SecureVirtualDiskManager
 
         var encryptedPayload = _encryption.Encrypt(plainDisk, password);
         _container.Write(config.ContainerPath, encryptedPayload);
+        DiagnosticLogger.Info($"Encrypted disk created at '{config.ContainerPath}'.");
         await Task.CompletedTask;
     }
 
@@ -43,14 +44,19 @@ public sealed class SecureVirtualDiskManager
             _mountedConfig = config;
             _mountedPassword = password;
             StartAutosave();
+            DiagnosticLogger.Info($"Mount success. Container='{config.ContainerPath}', MountPoint='{config.MountPoint}'.");
             return MountResult.Mounted();
         }
-        catch (CryptographicException)
+        catch (CryptographicException ex)
         {
+            DiagnosticLogger.Error($"Mount failed due to invalid password. Container='{config.ContainerPath}'.", ex);
             return MountResult.InvalidPassword();
         }
         catch (Exception ex)
         {
+            DiagnosticLogger.Error(
+                $"Mount failed. Container='{config.ContainerPath}', MountPoint='{config.MountPoint}', Driver='{_driver.GetType().Name}'.",
+                ex);
             return MountResult.DriverError(ex.Message);
         }
     }
@@ -61,6 +67,7 @@ public sealed class SecureVirtualDiskManager
         await _driver.UnmountAsync(mountPoint, ct);
         PersistFromDriver();
 
+        DiagnosticLogger.Info($"Unmount completed for MountPoint='{mountPoint}'.");
         _mountedConfig = null;
         _mountedPassword = null;
     }
@@ -86,8 +93,9 @@ public sealed class SecureVirtualDiskManager
                 {
                     break;
                 }
-                catch
+                catch (Exception ex)
                 {
+                    DiagnosticLogger.Error("Autosave snapshot failed.", ex);
                     // 自动快照失败不应中断挂载流程。
                 }
             }
@@ -133,6 +141,7 @@ public sealed class SecureVirtualDiskManager
 
         var payload = _encryption.Encrypt(snapshot, _mountedPassword);
         _container.Write(_mountedConfig.ContainerPath, payload);
+        DiagnosticLogger.Info($"Autosave snapshot persisted to '{_mountedConfig.ContainerPath}'.");
     }
 
     private void PersistFromDriver()
@@ -145,10 +154,12 @@ public sealed class SecureVirtualDiskManager
         var updated = persistable.TakeUpdatedDiskBytes();
         if (updated is null)
         {
+            DiagnosticLogger.Info("No updated disk bytes captured on unmount.");
             return;
         }
 
         var payload = _encryption.Encrypt(updated, _mountedPassword);
         _container.Write(_mountedConfig.ContainerPath, payload);
+        DiagnosticLogger.Info($"Final persisted snapshot written to '{_mountedConfig.ContainerPath}'.");
     }
 }

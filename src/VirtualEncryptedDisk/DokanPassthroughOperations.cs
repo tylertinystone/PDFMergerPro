@@ -321,20 +321,24 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
             return NtStatus.Success;
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
+            DiagnosticLogger.Error($"SetFileTime access denied. FileName='{fileName}', Path='{path}'.", ex);
             return NtStatus.AccessDenied;
         }
-        catch (DirectoryNotFoundException)
+        catch (DirectoryNotFoundException ex)
         {
+            DiagnosticLogger.Error($"SetFileTime directory not found. FileName='{fileName}', Path='{path}'.", ex);
             return NtStatus.ObjectPathNotFound;
         }
-        catch (FileNotFoundException)
+        catch (FileNotFoundException ex)
         {
+            DiagnosticLogger.Error($"SetFileTime file not found. FileName='{fileName}', Path='{path}'.", ex);
             return NtStatus.ObjectNameNotFound;
         }
-        catch (IOException)
+        catch (IOException ex)
         {
+            DiagnosticLogger.Error($"SetFileTime sharing violation. FileName='{fileName}', Path='{path}'.", ex);
             return NtStatus.SharingViolation;
         }
     }
@@ -388,12 +392,14 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
             return NtStatus.Success;
         }
-        catch (IOException)
+        catch (IOException ex)
         {
+            DiagnosticLogger.Error($"MoveFile sharing violation. Old='{oldName}', New='{newName}'.", ex);
             return NtStatus.SharingViolation;
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
+            DiagnosticLogger.Error($"MoveFile access denied. Old='{oldName}', New='{newName}'.", ex);
             return NtStatus.AccessDenied;
         }
     }

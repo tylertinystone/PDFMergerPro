@@ -32,6 +32,7 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersista
 
         var runtimeBase = ResolveRuntimeBasePath(config);
         Directory.CreateDirectory(runtimeBase);
+        DiagnosticLogger.Info($"Mount start. RuntimeBase='{runtimeBase}', MountPoint='{mountPoint}'.");
         var root = Path.Combine(runtimeBase, $"ved-dokan-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
 
@@ -60,22 +61,26 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersista
         {
             CleanupLogger();
             Directory.Delete(root, recursive: true);
+            DiagnosticLogger.Error("Dokan runtime missing while mounting.", ex);
             throw new InvalidOperationException(
                 $"Dokan Runtime 缺失：{ex.Message}。请安装 Dokan Runtime（包含 dokan2.dll）。", ex);
         }
-        catch
+        catch (Exception ex)
         {
             CleanupLogger();
             Directory.Delete(root, recursive: true);
+            DiagnosticLogger.Error($"Unexpected mount failure. Root='{root}', MountPoint='{mountPoint}'.", ex);
             throw;
         }
 
         _mountedRoot = root;
+        DiagnosticLogger.Info($"Mount completed. Root='{root}', MountPoint='{mountPoint}'.");
         await Task.CompletedTask;
     }
 
     public Task UnmountAsync(string mountPoint, CancellationToken ct = default)
     {
+        DiagnosticLogger.Info($"Unmount start. MountPoint='{mountPoint}', Root='{_mountedRoot}'.");
         _instance?.Dispose();
         _instance = null;
 
@@ -95,6 +100,7 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersista
             _mountedRoot = null;
         }
 
+        DiagnosticLogger.Info($"Unmount completed. MountPoint='{mountPoint}'.");
         return Task.CompletedTask;
     }
 
@@ -133,6 +139,7 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersista
             catch (IOException ex)
             {
                 lastError = ex;
+                DiagnosticLogger.Error($"Archive capture attempt {attempt}/{maxAttempts} failed for root '{root}'.", ex);
             }
 
             if (attempt < maxAttempts)

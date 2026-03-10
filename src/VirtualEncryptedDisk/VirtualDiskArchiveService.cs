@@ -84,10 +84,12 @@ public static class VirtualDiskArchiveService
             catch (IOException ex)
             {
                 lastError = ex;
+                DiagnosticLogger.Error($"Open file for archive failed (attempt {attempt}/{maxAttempts}). File='{filePath}'.", ex);
             }
             catch (UnauthorizedAccessException ex)
             {
                 lastError = ex;
+                DiagnosticLogger.Error($"Open file for archive unauthorized (attempt {attempt}/{maxAttempts}). File='{filePath}'.", ex);
             }
 
             if (attempt < maxAttempts)
