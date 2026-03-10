@@ -1,3 +1,4 @@
+using System.Reflection;
 using VirtualEncryptedDisk;
 
 var cfg = new VirtualDiskConfig(
@@ -6,6 +7,11 @@ var cfg = new VirtualDiskConfig(
     SizeMb: 32,
     ReadOnly: false
 );
+
+var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
+Console.WriteLine($"VirtualEncryptedDisk 版本: {version}");
+DiagnosticLogger.Info($"Application startup. Version={version}, PID={Environment.ProcessId}.");
+Console.WriteLine($"运行日志: {DiagnosticLogger.LogFilePath}");
 
 IThirdPartyDiskDriver driver = new DokanThirdPartyDiskDriver();
 Console.WriteLine($"当前驱动: {driver.GetType().Name}");
