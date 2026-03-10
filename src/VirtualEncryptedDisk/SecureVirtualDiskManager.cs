@@ -28,8 +28,17 @@ public sealed class SecureVirtualDiskManager
     {
         var plainDisk = VirtualDiskArchiveService.CreateEmptyArchive();
 
-        var encryptedPayload = _encryption.Encrypt(plainDisk, password);
-        _container.Write(config.ContainerPath, encryptedPayload);
+        if (config.UseChunkedContainerExperimental)
+        {
+            var store = ChunkedContainerStore.CreateNew(_encryption, config.ContainerPath, password, config.ChunkSizeBytes);
+            store.WriteAllBytes(plainDisk);
+            store.Flush();
+        }
+        else
+        {
+            var encryptedPayload = _encryption.Encrypt(plainDisk, password);
+            _container.Write(config.ContainerPath, encryptedPayload);
+        }
         DiagnosticLogger.Info($"Encrypted disk created at '{config.ContainerPath}'.");
         await Task.CompletedTask;
     }
@@ -38,8 +47,18 @@ public sealed class SecureVirtualDiskManager
     {
         try
         {
-            var payload = _container.Read(config.ContainerPath);
-            var plain = _encryption.Decrypt(payload, password);
+            byte[] plain;
+            if (config.UseChunkedContainerExperimental)
+            {
+                var store = ChunkedContainerStore.Open(_encryption, config.ContainerPath, password);
+                plain = store.ReadAllBytes();
+            }
+            else
+            {
+                var payload = _container.Read(config.ContainerPath);
+                plain = _encryption.Decrypt(payload, password);
+            }
+
             await _driver.MountAsync(config, plain, ct);
 
             _lastPersistedSnapshotHash = ComputeHashHex(plain);
@@ -163,8 +182,18 @@ public sealed class SecureVirtualDiskManager
             _lastPersistedSnapshotHash = currentHash;
         }
 
-        var payload = _encryption.Encrypt(snapshot, _mountedPassword);
-        _container.Write(_mountedConfig.ContainerPath, payload);
+        if (_mountedConfig.UseChunkedContainerExperimental)
+        {
+            var store = ChunkedContainerStore.OpenOrCreate(_encryption, _mountedConfig.ContainerPath, _mountedPassword, _mountedConfig.ChunkSizeBytes);
+            store.WriteAllBytes(snapshot);
+            store.Flush();
+        }
+        else
+        {
+            var payload = _encryption.Encrypt(snapshot, _mountedPassword);
+            _container.Write(_mountedConfig.ContainerPath, payload);
+        }
+
         DiagnosticLogger.Info($"Autosave snapshot persisted to '{_mountedConfig.ContainerPath}'.");
     }
 
@@ -194,8 +223,18 @@ public sealed class SecureVirtualDiskManager
             _lastPersistedSnapshotHash = currentHash;
         }
 
-        var payload = _encryption.Encrypt(updated, _mountedPassword);
-        _container.Write(_mountedConfig.ContainerPath, payload);
+        if (_mountedConfig.UseChunkedContainerExperimental)
+        {
+            var store = ChunkedContainerStore.OpenOrCreate(_encryption, _mountedConfig.ContainerPath, _mountedPassword, _mountedConfig.ChunkSizeBytes);
+            store.WriteAllBytes(updated);
+            store.Flush();
+        }
+        else
+        {
+            var payload = _encryption.Encrypt(updated, _mountedPassword);
+            _container.Write(_mountedConfig.ContainerPath, payload);
+        }
+
         DiagnosticLogger.Info($"Final persisted snapshot written to '{_mountedConfig.ContainerPath}'.");
     }
 

@@ -3,8 +3,8 @@ using System.Text;
 namespace VirtualEncryptedDisk;
 
 /// <summary>
-/// 阶段2：分块容器存储（独立于现有 zip 运行时路径）。
-/// 目标：提供按 chunk 的加密读写与元数据索引能力，为阶段3接入 Dokan 做准备。
+/// 阶段2/3：分块容器存储（独立于现有 zip 运行时路径）。
+/// 提供按 chunk 的加密读写与元数据索引能力。
 /// </summary>
 public sealed class ChunkedContainerStore
 {
@@ -80,6 +80,13 @@ public sealed class ChunkedContainerStore
         return store;
     }
 
+    public static ChunkedContainerStore OpenOrCreate(EncryptionService encryption, string containerPath, string password, int chunkSize = 1 * 1024 * 1024)
+    {
+        return File.Exists(containerPath)
+            ? Open(encryption, containerPath, password)
+            : CreateNew(encryption, containerPath, password, chunkSize);
+    }
+
     public byte[] ReadChunk(long chunkIndex)
     {
         if (chunkIndex < 0) throw new ArgumentOutOfRangeException(nameof(chunkIndex));
@@ -109,6 +116,40 @@ public sealed class ChunkedContainerStore
     }
 
     public IReadOnlyCollection<long> GetChunkIndexes() => _chunks.Keys.OrderBy(x => x).ToArray();
+
+    public byte[] ReadAllBytes()
+    {
+        if (_chunks.Count == 0)
+        {
+            return Array.Empty<byte>();
+        }
+
+        using var ms = new MemoryStream();
+        foreach (var index in _chunks.Keys.OrderBy(x => x))
+        {
+            var plain = ReadChunk(index);
+            ms.Write(plain, 0, plain.Length);
+        }
+
+        return ms.ToArray();
+    }
+
+    public void WriteAllBytes(ReadOnlySpan<byte> data)
+    {
+        _chunks.Clear();
+        if (data.Length == 0)
+        {
+            return;
+        }
+
+        var chunkCount = (data.Length + ChunkSize - 1) / ChunkSize;
+        for (var i = 0; i < chunkCount; i++)
+        {
+            var start = i * ChunkSize;
+            var len = Math.Min(ChunkSize, data.Length - start);
+            WriteChunk(i, data.Slice(start, len));
+        }
+    }
 
     public void Flush()
     {

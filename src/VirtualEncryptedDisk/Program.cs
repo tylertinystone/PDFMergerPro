@@ -8,7 +8,9 @@ var cfg = new VirtualDiskConfig(
     ReadOnly: false,
     AutosaveEnabled: false, // 先做安装兼容性排查：禁用自动快照
     AutosaveIntervalSeconds: 5,
-    PersistOnlyWhenChanged: true
+    PersistOnlyWhenChanged: true,
+    UseChunkedContainerExperimental: false,
+    ChunkSizeBytes: 1 * 1024 * 1024
 );
 
 var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
@@ -17,6 +19,7 @@ DiagnosticLogger.Info($"Application startup. Version={version}, PID={Environment
 Console.WriteLine($"运行日志: {DiagnosticLogger.LogFilePath}");
 Console.WriteLine($"自动快照: {(cfg.AutosaveEnabled ? $"开启（{cfg.AutosaveIntervalSeconds}s）" : "关闭")}");
 Console.WriteLine($"仅变更写回: {(cfg.PersistOnlyWhenChanged ? "开启" : "关闭")}");
+Console.WriteLine($"分块容器实验模式: {(cfg.UseChunkedContainerExperimental ? $"开启（Chunk={cfg.ChunkSizeBytes}）" : "关闭")}");
 
 IThirdPartyDiskDriver driver = new DokanThirdPartyDiskDriver();
 Console.WriteLine($"当前驱动: {driver.GetType().Name}");
