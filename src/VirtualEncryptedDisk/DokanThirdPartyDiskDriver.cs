@@ -8,12 +8,13 @@ namespace VirtualEncryptedDisk;
 /// <summary>
 /// 基于 Dokan.NET 的直接挂载实现（不使用反射）。
 /// </summary>
-public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
+public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersistableDiskDriver
 {
     private string? _mountedRoot;
     private DokanInstance? _instance;
     private FileStream? _logStream;
     private TextWriterTraceListener? _traceListener;
+    private byte[]? _lastArchiveBytes;
 
     public async Task MountAsync(VirtualDiskConfig config, byte[] decryptedDiskBytes, CancellationToken ct = default)
     {
@@ -31,8 +32,8 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
         var root = Path.Combine(Path.GetTempPath(), $"ved-dokan-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
 
-        var diskImagePath = Path.Combine(root, "disk.bin");
-        await File.WriteAllBytesAsync(diskImagePath, decryptedDiskBytes, ct);
+        // 将容器明文解释为目录归档，并解压到挂载后端目录。
+        VirtualDiskArchiveService.ExtractToDirectory(decryptedDiskBytes, root);
 
         var fs = new DokanPassthroughOperations(root, config.ReadOnly);
         var logger = CreateLogger();
@@ -74,6 +75,11 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
         _instance?.Dispose();
         _instance = null;
 
+        if (_mountedRoot is not null && Directory.Exists(_mountedRoot))
+        {
+            _lastArchiveBytes = VirtualDiskArchiveService.CreateFromDirectory(_mountedRoot);
+        }
+
         CleanupLogger();
 
         if (_mountedRoot is not null && Directory.Exists(_mountedRoot))
@@ -83,6 +89,13 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver
         }
 
         return Task.CompletedTask;
+    }
+
+    public byte[]? TakeUpdatedDiskBytes()
+    {
+        var bytes = _lastArchiveBytes;
+        _lastArchiveBytes = null;
+        return bytes;
     }
 
     private ILogger CreateLogger()
