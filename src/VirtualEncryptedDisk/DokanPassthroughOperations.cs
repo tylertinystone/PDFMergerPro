@@ -276,10 +276,47 @@ public sealed class DokanPassthroughOperations : IDokanOperations
     {
         if (_readOnly) return NtStatus.AccessDenied;
         var path = MapPath(fileName);
-        if (creationTime.HasValue) File.SetCreationTime(path, creationTime.Value);
-        if (lastAccessTime.HasValue) File.SetLastAccessTime(path, lastAccessTime.Value);
-        if (lastWriteTime.HasValue) File.SetLastWriteTime(path, lastWriteTime.Value);
-        return NtStatus.Success;
+
+        try
+        {
+            var isDirectory = info.IsDirectory || Directory.Exists(path);
+
+            if (creationTime.HasValue)
+            {
+                if (isDirectory) Directory.SetCreationTime(path, creationTime.Value);
+                else File.SetCreationTime(path, creationTime.Value);
+            }
+
+            if (lastAccessTime.HasValue)
+            {
+                if (isDirectory) Directory.SetLastAccessTime(path, lastAccessTime.Value);
+                else File.SetLastAccessTime(path, lastAccessTime.Value);
+            }
+
+            if (lastWriteTime.HasValue)
+            {
+                if (isDirectory) Directory.SetLastWriteTime(path, lastWriteTime.Value);
+                else File.SetLastWriteTime(path, lastWriteTime.Value);
+            }
+
+            return NtStatus.Success;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return NtStatus.AccessDenied;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return NtStatus.ObjectPathNotFound;
+        }
+        catch (FileNotFoundException)
+        {
+            return NtStatus.ObjectNameNotFound;
+        }
+        catch (IOException)
+        {
+            return NtStatus.SharingViolation;
+        }
     }
 
     public NtStatus DeleteFile(string fileName, IDokanFileInfo info)
