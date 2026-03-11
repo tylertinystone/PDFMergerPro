@@ -46,7 +46,13 @@ public sealed class DokanPassthroughOperations : IDokanOperations
             : path + Path.DirectorySeparatorChar;
     }
 
-    private bool IsPendingDeletePath(string path) => _pendingDeletes.ContainsKey(path);
+    private string NormalizePathKey(string path)
+    {
+        var full = Path.GetFullPath(path);
+        return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private bool IsPendingDeletePath(string path) => _pendingDeletes.ContainsKey(NormalizePathKey(path));
 
     public NtStatus CreateFile(string fileName, FileAccess access, FileShare share, FileMode mode, FileOptions options,
         FileAttributes attributes, IDokanFileInfo info)
@@ -61,8 +67,6 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
         try
         {
-            _pendingDeletes.TryRemove(path, out _);
-
             // 根目录
             if (fileName == "\\" || string.IsNullOrEmpty(fileName))
             {
@@ -164,7 +168,8 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         }
 
         var path = MapPath(fileName);
-        var hasPending = _pendingDeletes.TryRemove(path, out var pendingDelete);
+        var key = NormalizePathKey(path);
+        var hasPending = _pendingDeletes.TryRemove(key, out var pendingDelete);
         if (!hasPending && info.Context is PendingDelete contextPending)
         {
             pendingDelete = contextPending;
@@ -220,6 +225,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
             if (!deleted)
             {
+                _pendingDeletes[key] = pendingDelete;
                 DiagnosticLogger.Info($"Cleanup pending-delete not completed after retries. File='{fileName}', Path='{path}', IsDirectory={pendingDelete.IsDirectory}.");
             }
         }
@@ -459,7 +465,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
             // 当前 DokanNet 版本无 DeleteOnClose 暴露：改为用 info.Context 标记待删除，Cleanup 阶段执行实际删除。
             var pendingDelete = new PendingDelete(IsDirectory: false);
             info.Context = pendingDelete;
-            _pendingDeletes[path] = pendingDelete;
+            _pendingDeletes[NormalizePathKey(path)] = pendingDelete;
             return NtStatus.Success;
         }
         catch (UnauthorizedAccessException ex)
@@ -498,7 +504,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
             // 当前 DokanNet 版本无 DeleteOnClose 暴露：改为用 info.Context 标记待删除，Cleanup 阶段执行实际删除。
             var pendingDelete = new PendingDelete(IsDirectory: true);
             info.Context = pendingDelete;
-            _pendingDeletes[path] = pendingDelete;
+            _pendingDeletes[NormalizePathKey(path)] = pendingDelete;
             return NtStatus.Success;
         }
         catch (UnauthorizedAccessException ex)
