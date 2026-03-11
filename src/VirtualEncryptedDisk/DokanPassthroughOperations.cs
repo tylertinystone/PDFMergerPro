@@ -149,7 +149,35 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         }
     }
 
-    public void Cleanup(string fileName, IDokanFileInfo info) { }
+    public void Cleanup(string fileName, IDokanFileInfo info)
+    {
+        if (_readOnly || !info.DeleteOnClose)
+        {
+            return;
+        }
+
+        var path = MapPath(fileName);
+        try
+        {
+            if (info.IsDirectory)
+            {
+                if (Directory.Exists(path) && !Directory.EnumerateFileSystemEntries(path).Any())
+                {
+                    Directory.Delete(path, recursive: false);
+                }
+                return;
+            }
+
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.Error($"Cleanup delete-on-close failed. File='{fileName}', Path='{path}', IsDirectory={info.IsDirectory}.", ex);
+        }
+    }
 
     public void CloseFile(string fileName, IDokanFileInfo info) { }
 
@@ -363,8 +391,23 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         var path = MapPath(fileName);
         try
         {
-            if (File.Exists(path)) File.Delete(path);
+            if (!File.Exists(path))
+            {
+                return NtStatus.ObjectNameNotFound;
+            }
+
+            if (Directory.Exists(path))
+            {
+                return NtStatus.AccessDenied;
+            }
+
+            // Dokan 语义：DeleteFile 只做可删除检查，实际删除在 Cleanup(DeleteOnClose=true) 时执行。
             return NtStatus.Success;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            DiagnosticLogger.Error($"DeleteFile access denied. File='{fileName}', Path='{path}'.", ex);
+            return NtStatus.AccessDenied;
         }
         catch (Exception ex)
         {
@@ -384,8 +427,23 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         var path = MapPath(fileName);
         try
         {
-            if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+            if (!Directory.Exists(path))
+            {
+                return NtStatus.ObjectPathNotFound;
+            }
+
+            if (Directory.EnumerateFileSystemEntries(path).Any())
+            {
+                return NtStatus.DirectoryNotEmpty;
+            }
+
+            // Dokan 语义：DeleteDirectory 只做可删除检查，实际删除在 Cleanup(DeleteOnClose=true) 时执行。
             return NtStatus.Success;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            DiagnosticLogger.Error($"DeleteDirectory access denied. File='{fileName}', Path='{path}'.", ex);
+            return NtStatus.AccessDenied;
         }
         catch (Exception ex)
         {
