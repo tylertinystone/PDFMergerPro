@@ -11,5 +11,6 @@ public sealed record VirtualDiskConfig(
     bool PersistOnlyWhenChanged = true,
     bool UseChunkedContainerExperimental = true,
     int ChunkSizeBytes = 1 * 1024 * 1024,
-    bool AllowLegacyVed1Read = true
+    bool AllowLegacyVed1Read = true,
+    bool AutoMigrateLegacyOnMount = false
 );

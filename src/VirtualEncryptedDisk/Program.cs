@@ -11,7 +11,8 @@ var cfg = new VirtualDiskConfig(
     PersistOnlyWhenChanged: true,
     UseChunkedContainerExperimental: true,
     ChunkSizeBytes: 1 * 1024 * 1024,
-    AllowLegacyVed1Read: true
+    AllowLegacyVed1Read: true,
+    AutoMigrateLegacyOnMount: false
 );
 
 var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
@@ -23,6 +24,7 @@ Console.WriteLine($"仅变更写回: {(cfg.PersistOnlyWhenChanged ? "开启" : "
 Console.WriteLine($"分块容器实验模式: {(cfg.UseChunkedContainerExperimental ? $"开启（Chunk={cfg.ChunkSizeBytes}）" : "关闭")}");
 Console.WriteLine("容器模式: 默认 VEC2；可读取 Legacy VED1，并在写回时迁移为 VEC2。");
 Console.WriteLine($"允许读取 Legacy VED1: {(cfg.AllowLegacyVed1Read ? "是" : "否")}");
+Console.WriteLine($"挂载时自动迁移 Legacy: {(cfg.AutoMigrateLegacyOnMount ? "是" : "否")}");
 
 IThirdPartyDiskDriver driver = new DokanThirdPartyDiskDriver();
 Console.WriteLine($"当前驱动: {driver.GetType().Name}");

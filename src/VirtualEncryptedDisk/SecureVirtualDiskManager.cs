@@ -35,6 +35,26 @@ public sealed class SecureVirtualDiskManager
         await Task.CompletedTask;
     }
 
+
+    public async Task<bool> MigrateLegacyContainerToVec2Async(VirtualDiskConfig config, string password, CancellationToken ct = default)
+    {
+        if (IsVec2Container(config.ContainerPath))
+        {
+            DiagnosticLogger.Info($"Skip migration because container is already VEC2. Path='{config.ContainerPath}'.");
+            return false;
+        }
+
+        var payload = _container.Read(config.ContainerPath);
+        var plain = _encryption.Decrypt(payload, password);
+        var store = ChunkedContainerStore.CreateNew(_encryption, config.ContainerPath, password, config.ChunkSizeBytes);
+        store.WriteAllBytes(plain);
+        store.Flush();
+
+        DiagnosticLogger.Info($"Legacy VED1 container migrated to VEC2. Path='{config.ContainerPath}'.");
+        await Task.CompletedTask;
+        return true;
+    }
+
     public async Task<MountResult> MountWithPasswordAsync(VirtualDiskConfig config, string password, CancellationToken ct = default)
     {
         try
@@ -50,6 +70,13 @@ public sealed class SecureVirtualDiskManager
             {
                 var payload = _container.Read(config.ContainerPath);
                 plain = _encryption.Decrypt(payload, password);
+
+                if (config.AutoMigrateLegacyOnMount)
+                {
+                    var migrated = await MigrateLegacyContainerToVec2Async(config, password, ct);
+                    DiagnosticLogger.Info($"AutoMigrateLegacyOnMount result: {(migrated ? "migrated" : "no-op")}. Path='{config.ContainerPath}'.");
+                    mode = ContainerMode.ChunkedVec2;
+                }
             }
 
             await _driver.MountAsync(config, plain, ct);
