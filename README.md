@@ -101,3 +101,4 @@
 - 阶段4继续11：`DeleteFile/DeleteDirectory` 与 `Cleanup` 的删除检查/执行已通过 `IFileContentStore`（含 `IsDirectoryEmpty/DeleteFile/DeleteDirectory`），继续降低 Dokan 层 `System.IO` 耦合。
 - 阶段4继续12：`CreateFile` 的目录/空文件创建与存在性判断已通过 `IFileContentStore` 执行，继续推进 Dokan 层去本地文件系统耦合。
 - 阶段4继续13：`GetFileSecurity/SetFileSecurity` 的目标存在性与目录判定已切换到 `IFileContentStore`，进一步减少 Dokan 层直连 `File/Directory`。
+- 阶段4继续14：`DokanThirdPartyDiskDriver` 的载荷编解包已抽象为 `IDiskPayloadStore`（默认 `ZipDiskPayloadStore`），为后续替换目录归档链路做准备。

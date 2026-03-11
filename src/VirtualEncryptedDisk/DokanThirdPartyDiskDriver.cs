@@ -10,12 +10,18 @@ namespace VirtualEncryptedDisk;
 /// </summary>
 public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersistableDiskDriver
 {
+    public DokanThirdPartyDiskDriver(IDiskPayloadStore? payloadStore = null)
+    {
+        _payloadStore = payloadStore ?? new ZipDiskPayloadStore();
+    }
+
     private string? _mountedRoot;
     private DokanInstance? _instance;
     private FileStream? _logStream;
     private TextWriterTraceListener? _traceListener;
     private byte[]? _lastArchiveBytes;
     private readonly object _sync = new();
+    private readonly IDiskPayloadStore _payloadStore;
 
     public async Task MountAsync(VirtualDiskConfig config, byte[] decryptedDiskBytes, CancellationToken ct = default)
     {
@@ -37,7 +43,7 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersista
         Directory.CreateDirectory(root);
 
         // 将容器明文解释为目录归档，并解压到挂载后端目录。
-        VirtualDiskArchiveService.ExtractToDirectory(decryptedDiskBytes, root);
+        _payloadStore.Extract(decryptedDiskBytes, root);
 
         var fs = new DokanPassthroughOperations(root, config.ReadOnly);
         var logger = CreateLogger();
@@ -127,14 +133,14 @@ public sealed class DokanThirdPartyDiskDriver : IThirdPartyDiskDriver, IPersista
         }
     }
 
-    private static byte[] CaptureArchiveWithRetries(string root, int maxAttempts, int delayMs)
+    private byte[] CaptureArchiveWithRetries(string root, int maxAttempts, int delayMs)
     {
         Exception? lastError = null;
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
             try
             {
-                return VirtualDiskArchiveService.CreateFromDirectory(root);
+                return _payloadStore.Create(root);
             }
             catch (IOException ex)
             {
