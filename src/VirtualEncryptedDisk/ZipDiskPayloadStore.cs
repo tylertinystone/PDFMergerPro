@@ -7,4 +7,7 @@ public sealed class ZipDiskPayloadStore : IDiskPayloadStore
 
     public byte[] Create(string rootDirectory)
         => VirtualDiskArchiveService.CreateFromDirectory(rootDirectory);
+
+    public byte[] CreateEmpty()
+        => VirtualDiskArchiveService.CreateEmptyArchive();
 }

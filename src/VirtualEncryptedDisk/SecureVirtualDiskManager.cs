@@ -7,6 +7,7 @@ public sealed class SecureVirtualDiskManager
     private readonly EncryptionService _encryption;
     private readonly ContainerFileService _container;
     private readonly IThirdPartyDiskDriver _driver;
+    private readonly IDiskPayloadStore _payloadStore;
 
     private VirtualDiskConfig? _mountedConfig;
     private string? _mountedPassword;
@@ -17,16 +18,18 @@ public sealed class SecureVirtualDiskManager
     public SecureVirtualDiskManager(
         EncryptionService encryption,
         ContainerFileService container,
-        IThirdPartyDiskDriver driver)
+        IThirdPartyDiskDriver driver,
+        IDiskPayloadStore? payloadStore = null)
     {
         _encryption = encryption;
         _container = container;
         _driver = driver;
+        _payloadStore = payloadStore ?? new ZipDiskPayloadStore();
     }
 
     public async Task CreateEncryptedDiskAsync(VirtualDiskConfig config, string password, CancellationToken ct = default)
     {
-        var plainDisk = VirtualDiskArchiveService.CreateEmptyArchive();
+        var plainDisk = _payloadStore.CreateEmpty();
         var store = ChunkedContainerStore.CreateNew(_encryption, config.ContainerPath, password, config.ChunkSizeBytes);
         store.WriteAllBytes(plainDisk);
         store.Flush();

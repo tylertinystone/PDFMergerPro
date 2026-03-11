@@ -102,3 +102,4 @@
 - 阶段4继续12：`CreateFile` 的目录/空文件创建与存在性判断已通过 `IFileContentStore` 执行，继续推进 Dokan 层去本地文件系统耦合。
 - 阶段4继续13：`GetFileSecurity/SetFileSecurity` 的目标存在性与目录判定已切换到 `IFileContentStore`，进一步减少 Dokan 层直连 `File/Directory`。
 - 阶段4继续14：`DokanThirdPartyDiskDriver` 的载荷编解包已抽象为 `IDiskPayloadStore`（默认 `ZipDiskPayloadStore`），为后续替换目录归档链路做准备。
+- 阶段4继续15：`SecureVirtualDiskManager` 创建空盘载荷已通过 `IDiskPayloadStore.CreateEmpty()`，进一步去除对 `VirtualDiskArchiveService` 的直接耦合。
