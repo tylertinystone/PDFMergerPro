@@ -70,6 +70,50 @@ public sealed class PlainFileContentStore : IFileContentStore
         return Directory.EnumerateFileSystemEntries(path);
     }
 
+    public void SetAttributes(string path, FileAttributes attributes)
+    {
+        if (IsDirectory(path))
+        {
+            new DirectoryInfo(path).Attributes = attributes;
+            return;
+        }
+
+        File.SetAttributes(path, attributes);
+    }
+
+    public void SetCreationTime(string path, DateTime creationTime)
+    {
+        if (IsDirectory(path))
+        {
+            Directory.SetCreationTime(path, creationTime);
+            return;
+        }
+
+        File.SetCreationTime(path, creationTime);
+    }
+
+    public void SetLastAccessTime(string path, DateTime lastAccessTime)
+    {
+        if (IsDirectory(path))
+        {
+            Directory.SetLastAccessTime(path, lastAccessTime);
+            return;
+        }
+
+        File.SetLastAccessTime(path, lastAccessTime);
+    }
+
+    public void SetLastWriteTime(string path, DateTime lastWriteTime)
+    {
+        if (IsDirectory(path))
+        {
+            Directory.SetLastWriteTime(path, lastWriteTime);
+            return;
+        }
+
+        File.SetLastWriteTime(path, lastWriteTime);
+    }
+
     public void EnsureParentDirectory(string path)
     {
         var parent = Path.GetDirectoryName(path);

@@ -292,7 +292,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         var path = MapPath(fileName);
         try
         {
-            File.SetAttributes(path, attributes);
+            _contentStore.SetAttributes(path, attributes);
             return NtStatus.Success;
         }
         catch (Exception ex)
@@ -313,24 +313,19 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
         try
         {
-            var isDirectory = info.IsDirectory || Directory.Exists(path);
-
             if (creationTime.HasValue)
             {
-                if (isDirectory) Directory.SetCreationTime(path, creationTime.Value);
-                else File.SetCreationTime(path, creationTime.Value);
+                _contentStore.SetCreationTime(path, creationTime.Value);
             }
 
             if (lastAccessTime.HasValue)
             {
-                if (isDirectory) Directory.SetLastAccessTime(path, lastAccessTime.Value);
-                else File.SetLastAccessTime(path, lastAccessTime.Value);
+                _contentStore.SetLastAccessTime(path, lastAccessTime.Value);
             }
 
             if (lastWriteTime.HasValue)
             {
-                if (isDirectory) Directory.SetLastWriteTime(path, lastWriteTime.Value);
-                else File.SetLastWriteTime(path, lastWriteTime.Value);
+                _contentStore.SetLastWriteTime(path, lastWriteTime.Value);
             }
 
             return NtStatus.Success;

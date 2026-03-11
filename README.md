@@ -91,3 +91,4 @@
 
 - 阶段4继续2：`GetFileInformation` 已通过 `IFileContentStore` 获取存在性/长度/时间戳/属性，减少对本地 `FileInfo/DirectoryInfo` 的直接耦合。
 - 阶段4继续3：`FindFiles` 已通过 `IFileContentStore` 执行目录存在性检查与枚举、并读取条目元数据，进一步降低 Dokan 层对 `System.IO` 直接耦合。
+- 阶段4继续4：`SetFileAttributes` 与 `SetFileTime` 已通过 `IFileContentStore` 写入属性与时间戳，进一步减少 Dokan 层直接调用 `File/Directory` API。
