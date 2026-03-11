@@ -65,6 +65,11 @@ public sealed class PlainFileContentStore : IFileContentStore
             : new FileInfo(path).LastWriteTime;
     }
 
+    public IEnumerable<string> EnumerateFileSystemEntries(string path)
+    {
+        return Directory.EnumerateFileSystemEntries(path);
+    }
+
     public void EnsureParentDirectory(string path)
     {
         var parent = Path.GetDirectoryName(path);

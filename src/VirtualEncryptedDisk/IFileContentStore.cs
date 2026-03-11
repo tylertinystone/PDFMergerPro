@@ -12,5 +12,6 @@ public interface IFileContentStore
     DateTime GetCreationTime(string path);
     DateTime GetLastAccessTime(string path);
     DateTime GetLastWriteTime(string path);
+    IEnumerable<string> EnumerateFileSystemEntries(string path);
     void EnsureParentDirectory(string path);
 }

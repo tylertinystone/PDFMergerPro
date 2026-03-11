@@ -238,31 +238,40 @@ public sealed class DokanPassthroughOperations : IDokanOperations
     public NtStatus FindFiles(string fileName, out IList<FileInformation> files, IDokanFileInfo info)
     {
         var path = MapPath(fileName);
-        if (!Directory.Exists(path))
+
+        try
         {
-            files = Array.Empty<FileInformation>();
-            return NtStatus.ObjectPathNotFound;
-        }
-
-        files = Directory.EnumerateFileSystemEntries(path)
-            .Select(entry =>
+            if (!_contentStore.Exists(path) || !_contentStore.IsDirectory(path))
             {
-                var attr = File.GetAttributes(entry);
-                var isDir = attr.HasFlag(FileAttributes.Directory);
-                var di = new FileInfo(entry);
-                return new FileInformation
-                {
-                    FileName = Path.GetFileName(entry),
-                    Attributes = attr,
-                    CreationTime = di.CreationTime,
-                    LastAccessTime = di.LastAccessTime,
-                    LastWriteTime = di.LastWriteTime,
-                    Length = isDir ? 0 : di.Length
-                };
-            })
-            .ToList();
+                files = Array.Empty<FileInformation>();
+                return NtStatus.ObjectPathNotFound;
+            }
 
-        return NtStatus.Success;
+            files = _contentStore.EnumerateFileSystemEntries(path)
+                .Select(entry =>
+                {
+                    var isDir = _contentStore.IsDirectory(entry);
+                    var attr = isDir ? FileAttributes.Directory : _contentStore.GetAttributes(entry);
+                    return new FileInformation
+                    {
+                        FileName = Path.GetFileName(entry),
+                        Attributes = attr,
+                        CreationTime = _contentStore.GetCreationTime(entry),
+                        LastAccessTime = _contentStore.GetLastAccessTime(entry),
+                        LastWriteTime = _contentStore.GetLastWriteTime(entry),
+                        Length = isDir ? 0 : _contentStore.GetLength(entry)
+                    };
+                })
+                .ToList();
+
+            return NtStatus.Success;
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.Error($"FindFiles exception. File='{fileName}', Path='{path}'.", ex);
+            files = Array.Empty<FileInformation>();
+            return NtStatus.Unsuccessful;
+        }
     }
 
 
