@@ -2,7 +2,9 @@ namespace VirtualEncryptedDisk;
 
 public sealed class PlainFileContentStore : IFileContentStore
 {
-    public bool Exists(string path) => File.Exists(path);
+    public bool Exists(string path) => File.Exists(path) || Directory.Exists(path);
+
+    public bool IsDirectory(string path) => Directory.Exists(path);
 
     public int Read(string path, Span<byte> buffer, long offset)
     {
@@ -33,6 +35,34 @@ public sealed class PlainFileContentStore : IFileContentStore
     {
         var info = new FileInfo(path);
         return info.Length;
+    }
+
+    public FileAttributes GetAttributes(string path)
+    {
+        return IsDirectory(path)
+            ? new DirectoryInfo(path).Attributes
+            : new FileInfo(path).Attributes;
+    }
+
+    public DateTime GetCreationTime(string path)
+    {
+        return IsDirectory(path)
+            ? new DirectoryInfo(path).CreationTime
+            : new FileInfo(path).CreationTime;
+    }
+
+    public DateTime GetLastAccessTime(string path)
+    {
+        return IsDirectory(path)
+            ? new DirectoryInfo(path).LastAccessTime
+            : new FileInfo(path).LastAccessTime;
+    }
+
+    public DateTime GetLastWriteTime(string path)
+    {
+        return IsDirectory(path)
+            ? new DirectoryInfo(path).LastWriteTime
+            : new FileInfo(path).LastWriteTime;
     }
 
     public void EnsureParentDirectory(string path)

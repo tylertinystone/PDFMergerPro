@@ -149,15 +149,6 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         }
     }
 
-    private static void EnsureParentDirectory(string path)
-    {
-        var parent = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(parent))
-        {
-            Directory.CreateDirectory(parent);
-        }
-    }
-
     public void Cleanup(string fileName, IDokanFileInfo info) { }
 
     public void CloseFile(string fileName, IDokanFileInfo info) { }
@@ -216,38 +207,32 @@ public sealed class DokanPassthroughOperations : IDokanOperations
     {
         var path = MapPath(fileName);
 
-        if (Directory.Exists(path))
+        try
         {
-            var di = new DirectoryInfo(path);
+            if (!_contentStore.Exists(path))
+            {
+                fileInfo = new FileInformation();
+                return NtStatus.ObjectNameNotFound;
+            }
+
+            var isDirectory = _contentStore.IsDirectory(path);
             fileInfo = new FileInformation
             {
-                FileName = di.Name,
-                Attributes = FileAttributes.Directory,
-                CreationTime = di.CreationTime,
-                LastAccessTime = di.LastAccessTime,
-                LastWriteTime = di.LastWriteTime,
-                Length = 0
+                FileName = Path.GetFileName(path),
+                Attributes = isDirectory ? FileAttributes.Directory : _contentStore.GetAttributes(path),
+                CreationTime = _contentStore.GetCreationTime(path),
+                LastAccessTime = _contentStore.GetLastAccessTime(path),
+                LastWriteTime = _contentStore.GetLastWriteTime(path),
+                Length = isDirectory ? 0 : _contentStore.GetLength(path)
             };
             return NtStatus.Success;
         }
-
-        if (!File.Exists(path))
+        catch (Exception ex)
         {
+            DiagnosticLogger.Error($"GetFileInformation exception. File='{fileName}', Path='{path}'.", ex);
             fileInfo = new FileInformation();
-            return NtStatus.ObjectNameNotFound;
+            return NtStatus.Unsuccessful;
         }
-
-        var fi = new FileInfo(path);
-        fileInfo = new FileInformation
-        {
-            FileName = fi.Name,
-            Attributes = fi.Attributes,
-            CreationTime = fi.CreationTime,
-            LastAccessTime = fi.LastAccessTime,
-            LastWriteTime = fi.LastWriteTime,
-            Length = fi.Length
-        };
-        return NtStatus.Success;
     }
 
     public NtStatus FindFiles(string fileName, out IList<FileInformation> files, IDokanFileInfo info)

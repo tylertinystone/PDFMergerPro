@@ -88,3 +88,5 @@
 - 阶段4下一子步：`ChunkedContainerStore` 已提供 `ReadAt/WriteAt/SetLength` 随机读写 API（含旧 VEC2 头兼容读取）。
 
 - 阶段4继续：`DokanPassthroughOperations` 已引入 `IFileContentStore` 抽象，`ReadFile/WriteFile/SetEndOfFile` 通过后端接口执行，为下一步切换到分块存储后端做准备。
+
+- 阶段4继续2：`GetFileInformation` 已通过 `IFileContentStore` 获取存在性/长度/时间戳/属性，减少对本地 `FileInfo/DirectoryInfo` 的直接耦合。
