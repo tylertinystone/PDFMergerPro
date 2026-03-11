@@ -528,28 +528,16 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
         try
         {
-            var parent = Path.GetDirectoryName(newPath);
-            if (!string.IsNullOrEmpty(parent))
+            if (!_contentStore.Exists(oldPath))
             {
-                Directory.CreateDirectory(parent);
+                return NtStatus.ObjectNameNotFound;
             }
 
-            if (Directory.Exists(oldPath))
-            {
-                if (replace && Directory.Exists(newPath)) Directory.Delete(newPath, recursive: true);
-                Directory.Move(oldPath, newPath);
-                return NtStatus.Success;
-            }
+            var isDirectory = _contentStore.IsDirectory(oldPath);
+            _contentStore.Move(oldPath, newPath, replace, isDirectory);
 
-            if (replace && File.Exists(newPath))
-            {
-                File.Replace(oldPath, newPath, destinationBackupFileName: null, ignoreMetadataErrors: true);
-            }
-            else
-            {
-                File.Move(oldPath, newPath);
-            }
-
+            _pendingDeletes.TryRemove(NormalizePathKey(oldPath), out _);
+            _pendingDeletes.TryRemove(NormalizePathKey(newPath), out _);
             return NtStatus.Success;
         }
         catch (IOException ex)

@@ -122,4 +122,28 @@ public sealed class PlainFileContentStore : IFileContentStore
             Directory.CreateDirectory(parent);
         }
     }
+
+    public void Move(string oldPath, string newPath, bool replace, bool isDirectory)
+    {
+        EnsureParentDirectory(newPath);
+
+        if (isDirectory)
+        {
+            if (replace && Directory.Exists(newPath))
+            {
+                Directory.Delete(newPath, recursive: true);
+            }
+
+            Directory.Move(oldPath, newPath);
+            return;
+        }
+
+        if (replace && File.Exists(newPath))
+        {
+            File.Replace(oldPath, newPath, destinationBackupFileName: null, ignoreMetadataErrors: true);
+            return;
+        }
+
+        File.Move(oldPath, newPath);
+    }
 }

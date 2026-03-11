@@ -18,4 +18,5 @@ public interface IFileContentStore
     void SetLastAccessTime(string path, DateTime lastAccessTime);
     void SetLastWriteTime(string path, DateTime lastWriteTime);
     void EnsureParentDirectory(string path);
+    void Move(string oldPath, string newPath, bool replace, bool isDirectory);
 }
