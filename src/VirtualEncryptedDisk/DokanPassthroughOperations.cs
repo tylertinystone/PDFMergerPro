@@ -12,12 +12,14 @@ public sealed class DokanPassthroughOperations : IDokanOperations
     private readonly string _root;
     private readonly string _rootFullPath;
     private readonly bool _readOnly;
+    private readonly IFileContentStore _contentStore;
 
-    public DokanPassthroughOperations(string root, bool readOnly)
+    public DokanPassthroughOperations(string root, bool readOnly, IFileContentStore? contentStore = null)
     {
         _root = root;
         _rootFullPath = EnsureTrailingSeparator(Path.GetFullPath(root));
         _readOnly = readOnly;
+        _contentStore = contentStore ?? new PlainFileContentStore();
     }
 
     private string MapPath(string fileName)
@@ -167,33 +169,13 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
         try
         {
-            if (!File.Exists(path))
+            if (!_contentStore.Exists(path))
             {
                 DiagnosticLogger.Info($"ReadFile target not found. File='{fileName}', Path='{path}', Offset={offset}, Buffer={buffer.Length}.");
                 return NtStatus.ObjectNameNotFound;
             }
 
-            using var fs = new FileStream(path, FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            if (offset >= fs.Length)
-            {
-                return NtStatus.Success;
-            }
-
-            fs.Position = offset;
-
-            var total = 0;
-            while (total < buffer.Length)
-            {
-                var read = fs.Read(buffer, total, buffer.Length - total);
-                if (read == 0)
-                {
-                    break;
-                }
-
-                total += read;
-            }
-
-            bytesRead = total;
+            bytesRead = _contentStore.Read(path, buffer, offset);
             return NtStatus.Success;
         }
         catch (Exception ex)
@@ -216,15 +198,8 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
         try
         {
-            var parent = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(parent))
-            {
-                Directory.CreateDirectory(parent);
-            }
-
-            using var fs = new FileStream(path, FileMode.OpenOrCreate, System.IO.FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-            fs.Position = info.WriteToEndOfFile ? fs.Length : offset;
-            fs.Write(buffer, 0, buffer.Length);
+            _contentStore.EnsureParentDirectory(path);
+            _contentStore.Write(path, buffer, offset, info.WriteToEndOfFile);
             bytesWritten = buffer.Length;
             return NtStatus.Success;
         }
@@ -486,8 +461,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         var path = MapPath(fileName);
         try
         {
-            using var fs = new FileStream(path, FileMode.OpenOrCreate, System.IO.FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-            fs.SetLength(length);
+            _contentStore.SetLength(path, length);
             return NtStatus.Success;
         }
         catch (Exception ex)
