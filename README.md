@@ -93,3 +93,4 @@
 - 阶段4继续3：`FindFiles` 已通过 `IFileContentStore` 执行目录存在性检查与枚举、并读取条目元数据，进一步降低 Dokan 层对 `System.IO` 直接耦合。
 - 阶段4继续4：`SetFileAttributes` 与 `SetFileTime` 已通过 `IFileContentStore` 写入属性与时间戳，进一步减少 Dokan 层直接调用 `File/Directory` API。
 - 阶段4继续5：修复 Dokan 删除语义，`DeleteFile/DeleteDirectory` 改为删除前检查，实际删除在 `Cleanup(DeleteOnClose)` 执行，避免“请求删除成功但文件未实际移除”的问题。
+- 阶段4继续6：兼容部分 DokanNet 版本缺少 `IDokanFileInfo.DeleteOnClose` 的情况，删除流程改为用 `info.Context` 标记待删除并在 `Cleanup` 执行。

@@ -14,6 +14,8 @@ public sealed class DokanPassthroughOperations : IDokanOperations
     private readonly bool _readOnly;
     private readonly IFileContentStore _contentStore;
 
+    private sealed record PendingDelete(bool IsDirectory);
+
     public DokanPassthroughOperations(string root, bool readOnly, IFileContentStore? contentStore = null)
     {
         _root = root;
@@ -151,7 +153,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
     public void Cleanup(string fileName, IDokanFileInfo info)
     {
-        if (_readOnly || !info.DeleteOnClose)
+        if (_readOnly || info.Context is not PendingDelete pendingDelete)
         {
             return;
         }
@@ -159,27 +161,32 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         var path = MapPath(fileName);
         try
         {
-            if (info.IsDirectory)
+            if (pendingDelete.IsDirectory)
             {
                 if (Directory.Exists(path) && !Directory.EnumerateFileSystemEntries(path).Any())
                 {
                     Directory.Delete(path, recursive: false);
                 }
-                return;
             }
-
-            if (File.Exists(path))
+            else if (File.Exists(path))
             {
                 File.Delete(path);
             }
         }
         catch (Exception ex)
         {
-            DiagnosticLogger.Error($"Cleanup delete-on-close failed. File='{fileName}', Path='{path}', IsDirectory={info.IsDirectory}.", ex);
+            DiagnosticLogger.Error($"Cleanup pending-delete failed. File='{fileName}', Path='{path}', IsDirectory={pendingDelete.IsDirectory}.", ex);
+        }
+        finally
+        {
+            info.Context = null;
         }
     }
 
-    public void CloseFile(string fileName, IDokanFileInfo info) { }
+    public void CloseFile(string fileName, IDokanFileInfo info)
+    {
+        info.Context = null;
+    }
 
     public NtStatus ReadFile(string fileName, byte[] buffer, out int bytesRead, long offset, IDokanFileInfo info)
     {
@@ -401,7 +408,8 @@ public sealed class DokanPassthroughOperations : IDokanOperations
                 return NtStatus.AccessDenied;
             }
 
-            // Dokan 语义：DeleteFile 只做可删除检查，实际删除在 Cleanup(DeleteOnClose=true) 时执行。
+            // 当前 DokanNet 版本无 DeleteOnClose 暴露：改为用 info.Context 标记待删除，Cleanup 阶段执行实际删除。
+            info.Context = new PendingDelete(IsDirectory: false);
             return NtStatus.Success;
         }
         catch (UnauthorizedAccessException ex)
@@ -437,7 +445,8 @@ public sealed class DokanPassthroughOperations : IDokanOperations
                 return NtStatus.DirectoryNotEmpty;
             }
 
-            // Dokan 语义：DeleteDirectory 只做可删除检查，实际删除在 Cleanup(DeleteOnClose=true) 时执行。
+            // 当前 DokanNet 版本无 DeleteOnClose 暴露：改为用 info.Context 标记待删除，Cleanup 阶段执行实际删除。
+            info.Context = new PendingDelete(IsDirectory: true);
             return NtStatus.Success;
         }
         catch (UnauthorizedAccessException ex)
