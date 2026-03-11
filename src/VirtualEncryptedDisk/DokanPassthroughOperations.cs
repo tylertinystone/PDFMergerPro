@@ -110,12 +110,12 @@ public sealed class DokanPassthroughOperations : IDokanOperations
                         return Fail(NtStatus.ObjectNameCollision, "file already exists");
                     }
                     if (_readOnly) return Fail(NtStatus.AccessDenied, "read-only create new");
-                    EnsureParentDirectory(path);
+                    _contentStore.EnsureParentDirectory(path);
                     break;
 
                 case FileMode.Create:
                     if (_readOnly) return Fail(NtStatus.AccessDenied, "read-only create");
-                    EnsureParentDirectory(path);
+                    _contentStore.EnsureParentDirectory(path);
                     if (!exists)
                     {
                         using (File.Create(path)) { }
@@ -126,7 +126,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
                     if (!exists)
                     {
                         if (_readOnly) return Fail(NtStatus.AccessDenied, "read-only open-or-create");
-                        EnsureParentDirectory(path);
+                        _contentStore.EnsureParentDirectory(path);
                         using (File.Create(path)) { }
                     }
                     break;
