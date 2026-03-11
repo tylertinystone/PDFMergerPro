@@ -95,3 +95,4 @@
 - 阶段4继续5：修复 Dokan 删除语义，`DeleteFile/DeleteDirectory` 改为删除前检查，实际删除在 `Cleanup(DeleteOnClose)` 执行，避免“请求删除成功但文件未实际移除”的问题。
 - 阶段4继续6：兼容部分 DokanNet 版本缺少 `IDokanFileInfo.DeleteOnClose` 的情况，删除流程改为用 `info.Context` 标记待删除并在 `Cleanup` 执行。
 - 阶段4继续7：修复“删除后重载仍存在”问题，待删除状态从单一 `info.Context` 扩展到按路径跟踪（`_pendingDeletes`），确保跨回调实例也可在 `Cleanup` 完成实际删除。
+- 阶段4继续8：删除请求通过后会先在 Dokan 视图中隐藏待删路径（避免“删了还在列表中”），并在 `Cleanup` 增加重试删除逻辑以应对短暂占用。

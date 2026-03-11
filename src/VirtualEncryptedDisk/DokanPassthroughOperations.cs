@@ -46,6 +46,8 @@ public sealed class DokanPassthroughOperations : IDokanOperations
             : path + Path.DirectorySeparatorChar;
     }
 
+    private bool IsPendingDeletePath(string path) => _pendingDeletes.ContainsKey(path);
+
     public NtStatus CreateFile(string fileName, FileAccess access, FileShare share, FileMode mode, FileOptions options,
         FileAttributes attributes, IDokanFileInfo info)
     {
@@ -59,6 +61,8 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
         try
         {
+            _pendingDeletes.TryRemove(path, out _);
+
             // 根目录
             if (fileName == "\\" || string.IsNullOrEmpty(fileName))
             {
@@ -174,16 +178,49 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
         try
         {
-            if (pendingDelete.IsDirectory)
+            var deleted = false;
+            for (var attempt = 1; attempt <= 5 && !deleted; attempt++)
             {
-                if (Directory.Exists(path) && !Directory.EnumerateFileSystemEntries(path).Any())
+                try
                 {
-                    Directory.Delete(path, recursive: false);
+                    if (pendingDelete.IsDirectory)
+                    {
+                        if (!Directory.Exists(path))
+                        {
+                            deleted = true;
+                        }
+                        else if (!Directory.EnumerateFileSystemEntries(path).Any())
+                        {
+                            Directory.Delete(path, recursive: false);
+                            deleted = true;
+                        }
+                    }
+                    else
+                    {
+                        if (!File.Exists(path))
+                        {
+                            deleted = true;
+                        }
+                        else
+                        {
+                            File.Delete(path);
+                            deleted = true;
+                        }
+                    }
+                }
+                catch (IOException) when (attempt < 5)
+                {
+                    Thread.Sleep(50 * attempt);
+                }
+                catch (UnauthorizedAccessException) when (attempt < 5)
+                {
+                    Thread.Sleep(50 * attempt);
                 }
             }
-            else if (File.Exists(path))
+
+            if (!deleted)
             {
-                File.Delete(path);
+                DiagnosticLogger.Info($"Cleanup pending-delete not completed after retries. File='{fileName}', Path='{path}', IsDirectory={pendingDelete.IsDirectory}.");
             }
         }
         catch (Exception ex)
@@ -205,7 +242,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
         try
         {
-            if (!_contentStore.Exists(path))
+            if (IsPendingDeletePath(path) || !_contentStore.Exists(path))
             {
                 DiagnosticLogger.Info($"ReadFile target not found. File='{fileName}', Path='{path}', Offset={offset}, Buffer={buffer.Length}.");
                 return NtStatus.ObjectNameNotFound;
@@ -254,7 +291,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
         try
         {
-            if (!_contentStore.Exists(path))
+            if (IsPendingDeletePath(path) || !_contentStore.Exists(path))
             {
                 fileInfo = new FileInformation();
                 return NtStatus.ObjectNameNotFound;
@@ -286,13 +323,14 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
         try
         {
-            if (!_contentStore.Exists(path) || !_contentStore.IsDirectory(path))
+            if (IsPendingDeletePath(path) || !_contentStore.Exists(path) || !_contentStore.IsDirectory(path))
             {
                 files = Array.Empty<FileInformation>();
                 return NtStatus.ObjectPathNotFound;
             }
 
             files = _contentStore.EnumerateFileSystemEntries(path)
+                .Where(entry => !IsPendingDeletePath(entry))
                 .Select(entry =>
                 {
                     var isDir = _contentStore.IsDirectory(entry);
