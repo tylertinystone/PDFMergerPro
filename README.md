@@ -84,3 +84,5 @@
 - 阶段4新增：可通过 `AutoMigrateLegacyOnMount=true` 在首次挂载 Legacy VED1 时自动迁移到 VEC2。
 
 - 构建稳定性：项目已在编译前显式创建 `obj` 与 Roslyn editorconfig 目录，降低 `VirtualEncryptedDisk.GeneratedMSBuildEditorConfig.editorconfig` 路径缺失错误。
+
+- 阶段4下一子步：`ChunkedContainerStore` 已提供 `ReadAt/WriteAt/SetLength` 随机读写 API（含旧 VEC2 头兼容读取）。
