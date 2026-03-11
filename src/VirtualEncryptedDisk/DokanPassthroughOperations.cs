@@ -620,7 +620,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
                 return NtStatus.Success;
             }
 
-            if (File.Exists(path))
+            if (_contentStore.Exists(path) && !_contentStore.IsDirectory(path))
             {
                 security = new FileSecurity();
                 return NtStatus.Success;
@@ -648,7 +648,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         }
 
         var path = MapPath(fileName);
-        if (!File.Exists(path) && !Directory.Exists(path))
+        if (!_contentStore.Exists(path))
         {
             DiagnosticLogger.Info($"SetFileSecurity target not found. File='{fileName}', Path='{path}', Sections={sections}.");
             return NtStatus.ObjectNameNotFound;
