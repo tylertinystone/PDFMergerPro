@@ -13,10 +13,13 @@ public interface IFileContentStore
     DateTime GetLastAccessTime(string path);
     DateTime GetLastWriteTime(string path);
     IEnumerable<string> EnumerateFileSystemEntries(string path);
+    bool IsDirectoryEmpty(string path);
     void SetAttributes(string path, FileAttributes attributes);
     void SetCreationTime(string path, DateTime creationTime);
     void SetLastAccessTime(string path, DateTime lastAccessTime);
     void SetLastWriteTime(string path, DateTime lastWriteTime);
     void EnsureParentDirectory(string path);
     void Move(string oldPath, string newPath, bool replace, bool isDirectory);
+    void DeleteFile(string path);
+    void DeleteDirectory(string path, bool recursive);
 }

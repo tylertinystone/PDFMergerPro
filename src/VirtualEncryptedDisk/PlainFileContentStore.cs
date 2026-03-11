@@ -70,6 +70,11 @@ public sealed class PlainFileContentStore : IFileContentStore
         return Directory.EnumerateFileSystemEntries(path);
     }
 
+    public bool IsDirectoryEmpty(string path)
+    {
+        return !Directory.EnumerateFileSystemEntries(path).Any();
+    }
+
     public void SetAttributes(string path, FileAttributes attributes)
     {
         if (IsDirectory(path))
@@ -145,5 +150,15 @@ public sealed class PlainFileContentStore : IFileContentStore
         }
 
         File.Move(oldPath, newPath);
+    }
+
+    public void DeleteFile(string path)
+    {
+        File.Delete(path);
+    }
+
+    public void DeleteDirectory(string path, bool recursive)
+    {
+        Directory.Delete(path, recursive);
     }
 }

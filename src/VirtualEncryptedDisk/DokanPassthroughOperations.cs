@@ -190,25 +190,25 @@ public sealed class DokanPassthroughOperations : IDokanOperations
                 {
                     if (pendingDelete.IsDirectory)
                     {
-                        if (!Directory.Exists(path))
+                        if (!_contentStore.Exists(path))
                         {
                             deleted = true;
                         }
-                        else if (!Directory.EnumerateFileSystemEntries(path).Any())
+                        else if (_contentStore.IsDirectory(path) && _contentStore.IsDirectoryEmpty(path))
                         {
-                            Directory.Delete(path, recursive: false);
+                            _contentStore.DeleteDirectory(path, recursive: false);
                             deleted = true;
                         }
                     }
                     else
                     {
-                        if (!File.Exists(path))
+                        if (!_contentStore.Exists(path))
                         {
                             deleted = true;
                         }
                         else
                         {
-                            File.Delete(path);
+                            _contentStore.DeleteFile(path);
                             deleted = true;
                         }
                     }
@@ -452,12 +452,12 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         var path = MapPath(fileName);
         try
         {
-            if (!File.Exists(path))
+            if (!_contentStore.Exists(path))
             {
                 return NtStatus.ObjectNameNotFound;
             }
 
-            if (Directory.Exists(path))
+            if (_contentStore.IsDirectory(path))
             {
                 return NtStatus.AccessDenied;
             }
@@ -491,12 +491,12 @@ public sealed class DokanPassthroughOperations : IDokanOperations
         var path = MapPath(fileName);
         try
         {
-            if (!Directory.Exists(path))
+            if (!_contentStore.Exists(path) || !_contentStore.IsDirectory(path))
             {
                 return NtStatus.ObjectPathNotFound;
             }
 
-            if (Directory.EnumerateFileSystemEntries(path).Any())
+            if (!_contentStore.IsDirectoryEmpty(path))
             {
                 return NtStatus.DirectoryNotEmpty;
             }
