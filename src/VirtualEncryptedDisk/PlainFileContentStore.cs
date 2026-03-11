@@ -128,6 +128,16 @@ public sealed class PlainFileContentStore : IFileContentStore
         }
     }
 
+    public void CreateDirectory(string path)
+    {
+        Directory.CreateDirectory(path);
+    }
+
+    public void CreateEmptyFile(string path)
+    {
+        using (File.Create(path)) { }
+    }
+
     public void Move(string oldPath, string newPath, bool replace, bool isDirectory)
     {
         EnsureParentDirectory(newPath);

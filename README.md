@@ -99,3 +99,4 @@
 - 阶段4继续9：修复删除后刷新/重载仍存在问题：不再在 `CreateFile` 提前清理待删标记，待删路径使用规范化键跟踪，若 `Cleanup` 删除失败会保留标记等待后续重试。
 - 阶段4继续10：`MoveFile` 已通过 `IFileContentStore.Move(...)` 执行，进一步减少 Dokan 操作层对 `System.IO` 的直接依赖。
 - 阶段4继续11：`DeleteFile/DeleteDirectory` 与 `Cleanup` 的删除检查/执行已通过 `IFileContentStore`（含 `IsDirectoryEmpty/DeleteFile/DeleteDirectory`），继续降低 Dokan 层 `System.IO` 耦合。
+- 阶段4继续12：`CreateFile` 的目录/空文件创建与存在性判断已通过 `IFileContentStore` 执行，继续推进 Dokan 层去本地文件系统耦合。

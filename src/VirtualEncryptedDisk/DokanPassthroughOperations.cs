@@ -81,7 +81,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
             }
 
             var isDirectoryRequest = info.IsDirectory || attributes.HasFlag(FileAttributes.Directory);
-            if (Directory.Exists(path))
+            if (_contentStore.Exists(path) && _contentStore.IsDirectory(path))
             {
                 info.IsDirectory = true;
                 return mode == FileMode.CreateNew ? Fail(NtStatus.ObjectNameCollision, "directory already exists") : NtStatus.Success;
@@ -101,11 +101,11 @@ public sealed class DokanPassthroughOperations : IDokanOperations
                     return Fail(NtStatus.AccessDenied, "read-only directory create");
                 }
 
-                Directory.CreateDirectory(path);
+                _contentStore.CreateDirectory(path);
                 return NtStatus.Success;
             }
 
-            var exists = File.Exists(path);
+            var exists = _contentStore.Exists(path) && !_contentStore.IsDirectory(path);
             switch (mode)
             {
                 case FileMode.Open:
@@ -129,7 +129,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
                     _contentStore.EnsureParentDirectory(path);
                     if (!exists)
                     {
-                        using (File.Create(path)) { }
+                        _contentStore.CreateEmptyFile(path);
                     }
                     break;
 
@@ -138,7 +138,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
                     {
                         if (_readOnly) return Fail(NtStatus.AccessDenied, "read-only open-or-create");
                         _contentStore.EnsureParentDirectory(path);
-                        using (File.Create(path)) { }
+                        _contentStore.CreateEmptyFile(path);
                     }
                     break;
 
@@ -614,7 +614,7 @@ public sealed class DokanPassthroughOperations : IDokanOperations
 
         try
         {
-            if (Directory.Exists(path))
+            if (_contentStore.Exists(path) && _contentStore.IsDirectory(path))
             {
                 security = new DirectorySecurity();
                 return NtStatus.Success;
