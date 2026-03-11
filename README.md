@@ -82,3 +82,5 @@
 - 阶段4补充：可通过 `AllowLegacyVed1Read` 控制是否允许读取旧 `VED1` 容器（默认允许）。
 
 - 阶段4新增：可通过 `AutoMigrateLegacyOnMount=true` 在首次挂载 Legacy VED1 时自动迁移到 VEC2。
+
+- 构建稳定性：项目已在编译前显式创建 `obj` 与 Roslyn editorconfig 目录，降低 `VirtualEncryptedDisk.GeneratedMSBuildEditorConfig.editorconfig` 路径缺失错误。
