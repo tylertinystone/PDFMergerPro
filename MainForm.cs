@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 
 namespace YoutubeDownloader;
 
@@ -26,6 +27,13 @@ public sealed class MainForm : Form
         Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
     };
 
+    private readonly CheckBox _useBrowserProxyCheckBox = new()
+    {
+        Text = "使用浏览器代理（系统代理）",
+        AutoSize = true,
+        Checked = true
+    };
+
     private readonly FolderBrowserDialog _folderDialog = new();
 
     public MainForm()
@@ -50,19 +58,22 @@ public sealed class MainForm : Form
         _downloadButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         _downloadButton.Click += DownloadButton_Click;
 
-        _logTextBox.Location = new Point(12, 84);
-        _logTextBox.Size = new Size(ClientSize.Width - 24, ClientSize.Height - 96);
+        _useBrowserProxyCheckBox.Location = new Point(12, 65);
+
+        _logTextBox.Location = new Point(12, 94);
+        _logTextBox.Size = new Size(ClientSize.Width - 24, ClientSize.Height - 106);
 
         Controls.Add(urlLabel);
         Controls.Add(_urlTextBox);
         Controls.Add(_downloadButton);
+        Controls.Add(_useBrowserProxyCheckBox);
         Controls.Add(_logTextBox);
 
         Resize += (_, _) =>
         {
             _urlTextBox.Width = ClientSize.Width - 180;
             _downloadButton.Left = _urlTextBox.Right + 10;
-            _logTextBox.Size = new Size(ClientSize.Width - 24, ClientSize.Height - 96);
+            _logTextBox.Size = new Size(ClientSize.Width - 24, ClientSize.Height - 106);
         };
     }
 
@@ -93,7 +104,15 @@ public sealed class MainForm : Form
         _logTextBox.Clear();
         AppendLog("开始下载...");
 
-        var args = BuildArgs(url, cookiePath, downloadFolder);
+        var proxy = _useBrowserProxyCheckBox.Checked ? GetBrowserProxy(url) : null;
+        if (_useBrowserProxyCheckBox.Checked)
+        {
+            AppendLog(proxy is null
+                ? "未检测到浏览器代理，将按直连方式下载。"
+                : $"已启用浏览器代理: {proxy}");
+        }
+
+        var args = BuildArgs(url, cookiePath, downloadFolder, proxy);
         var process = new Process
         {
             StartInfo = new ProcessStartInfo
@@ -156,20 +175,54 @@ public sealed class MainForm : Form
         }
     }
 
-    private static string BuildArgs(string url, string cookiePath, string outputFolder)
+    private static string BuildArgs(string url, string cookiePath, string outputFolder, string? proxy)
     {
         static string Quote(string value) => $"\"{value.Replace("\"", "\\\"")}\"";
 
         var format = "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best";
         var outputTemplate = Path.Combine(outputFolder, "%(title)s [%(id)s].%(ext)s");
 
-        return string.Join(' ',
+        var args = new List<string>
+        {
             "--js-runtimes node",
             $"--cookies {Quote(cookiePath)}",
             $"-f {Quote(format)}",
             "--merge-output-format mp4",
             $"-o {Quote(outputTemplate)}",
-            Quote(url));
+            Quote(url)
+        };
+
+        if (!string.IsNullOrWhiteSpace(proxy))
+        {
+            args.Insert(1, $"--proxy {Quote(proxy)}");
+        }
+
+        return string.Join(' ', args);
+    }
+
+    private static string? GetBrowserProxy(string url)
+    {
+        try
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var targetUri))
+            {
+                return null;
+            }
+
+            var proxy = WebRequest.GetSystemWebProxy();
+            var proxyUri = proxy.GetProxy(targetUri);
+
+            if (proxyUri == targetUri)
+            {
+                return null;
+            }
+
+            return proxyUri.ToString();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void AppendLog(string message, bool withTimestamp = false)

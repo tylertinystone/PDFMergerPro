@@ -5,6 +5,7 @@
 ### 功能
 - 输入 YouTube 视频链接
 - 选择下载目录
+- 可勾选「使用浏览器代理（系统代理）」自动复用浏览器/系统代理配置
 - 自动调用以下参数下载/合并为 MP4：
   - `--js-runtimes node`
   - `--cookies cookies.txt`
@@ -24,3 +25,4 @@ dotnet run
 
 ### 备注
 - 本项目 target 为 `net8.0-windows`，请在 Windows 环境运行。
+- 开启「使用浏览器代理」后，会根据系统代理设置自动传入 `--proxy` 给 `yt-dlp`。
